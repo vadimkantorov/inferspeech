@@ -8,8 +8,7 @@ The credit for the original [wav2letter++ model](https://arxiv.org/abs/1812.0762
 **Dependencies:** PyTorch (cpu version is OK), pytorch_speech_features, NumPy, scipy, h5py
 
 # Example
-
-```
+```shell
 # download the pretrained model weights
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.h5
 
