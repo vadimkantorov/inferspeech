@@ -7,7 +7,7 @@ The [pretrained model weights for English](https://github.com/vadimkantorov/infe
 
 **Dependencies:** `pytorch` (cpu version is OK), `pytorch_speech_features`, `numpy`, `scipy`, `h5py`
 
-The credit for the original [wav2letter++ model](https://arxiv.org/abs/1812.07625) is to awesome Facebook AI Research scientists.
+The credit for the original [wav2letter++ model](https://arxiv.org/abs/1812.07625) goes to awesome Facebook AI Research scientists.
 
 # Example
 ```shell
