@@ -15,5 +15,5 @@ The credit for the original [wav2letter++ model](https://arxiv.org/abs/1812.0762
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.h5
 
 # transcribe a wav file
-python3 inferspeech.py --weights w2l_plus_large_mp.h5 -i test.wav
+python3 speech2text.py --weights w2l_plus_large_mp.h5 -i test.wav
 ```
