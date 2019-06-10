@@ -5,34 +5,91 @@
 	<img hidden id="pcm16le" src="pcm16le.png" />
 	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.1.2/dist/tf.min.js"></script>
 	<script>
-	function stft(signal, params)
+
+	function frame(signal, frameLength, frameStep)
 	{
-		return tf.zeros([600, 64], 'float32');
+		let start = 0;
+		const output = [];
+		while (start + frameLength <= signal.size)
+		{
+			output.push(signal.slice(start, frameLength));
+			start += frameStep;
+		}
+		return tf.concat(output).as2D(output.length, frameLength);
+	} 
+
+	function stft_abs_sq(signal, frameLength, frameStep)
+	{
+		const fftLength = frameLength;
+		const framedSignal = frame(signal, frameLength, frameStep);
+		const windowedSignal = tf.mul(framedSignal, tf.hannWindow(frameLength));
+
+		const output = [];
+
+		for (let i = 0; i < framedSignal.shape[0]; i++)
+			output.push(tf.square(tf.abs(tf.rfft(windowedSignal.slice([i, 0], [1, fftLength])))));
+
+		return tf.div(tf.concat(output), frameLength);
+	}
+
+	function preemphasis(signal, coeff)
+	{
+		return tf.concat([signal.slice(0, 1), tf.sub(signal.slice(1), tf.mul(signal.slice(0, signal.size - 1), coeff))]);
+	}
+	
+	function get_filterbanks(nfilt, nfft, samplerate)
+	{
+		const hz2mel = hz => 2595 * Math.log10(1+hz/700.);
+		const mel2hz = mel =>  tf.mul(700, tf.sub(tf.pow(10, tf.div(mel, 2595)), 1));
+
+		const lowfreq = 0;
+		const highfreq = samplerate / 2;
+		const lowmel = hz2mel(lowfreq);
+		const highmel = hz2mel(highfreq);
+		const melpoints = tf.linspace(lowmel,highmel,nfilt+2);
+		const bin = tf.floor(tf.mul(nfft+1, tf.div(mel2hz(melpoints), samplerate))).arraySync();
+
+		const fbank = tf.zeros([nfilt, nfft / 2 + 1]).arraySync();
+		for(let j = 0; j < nfilt; j++)
+		{
+			for(let i = Math.floor(bin[j]); i < Math.floor(bin[j+1]); i++)
+				fbank[j][i] = (i - bin[j]) / (bin[j+1]-bin[j])
+			for(let i = Math.floor(bin[j+1]); i < Math.floor(bin[j+2]); i++)
+				fbank[j][i] = (bin[j+2]-i) / (bin[j+2]-bin[j+1])
+		}
+		return tf.tensor(fbank);
 	}
 
 	(async () => {
 
+		
+		const sample_rate = 16000;
+		const window_length = 20 * sample_rate / 1000;
+		const hop_length = 10 * sample_rate / 1000;
+		const nfft = window_length;//512;
+		const nfilt = 64;
+
+		let signal = tf.browser.fromPixels(document.getElementById('pcm16le'), 4);
+		signal = signal.reshape([-1, 2]).transpose();
+		signal = tf.sub(tf.add(tf.mul(signal.slice(0, 1), tf.scalar(256, 'int32')), signal.slice(1, 1)).squeeze(), tf.scalar(32768, 'int32')).toFloat();
+
+		signal = preemphasis(signal, 0.97);
+		const pspec = stft_abs_sq(signal, window_length, hop_length);
+		const mel_basis = get_filterbanks(nfilt, nfft, sample_rate).transpose();
+		const features = tf.log(tf.add(tf.dot(pspec, mel_basis), 1e-20));
+
+		let batch = features.expandDims();
+		const m = tf.mean(features);
+		const s = tf.sqrt(tf.mean(tf.squaredDifference(features, m)));
+		batch = tf.div(tf.sub(batch, m), s);
+
 		const modelUrl = 'w2l_plus_large_mp.tfjs/model.json';
 		const model = await tf.loadLayersModel(modelUrl);
-		
-		const sample_rate = 16000, signal = tf.browser.fromPixels(document.getElementById('pcm16le'), 1).squeeze();
-		const batch = stft(signal, {
-			samplerate : sample_rate,
-			winlen : 20e-3,
-			winstep : 10e-3,
-			nfilt : 64,
-			nfft : 512,
-			lowfreq : 0,
-			highfreq : sample_rate / 2,
-			preemph : 0.97
-		}).expandDims();
-
-		console.log(signal.shape, batch.shape);
-
 		const scores = model.predict(batch).squeeze(0);
 		const decoded_greedy = scores.argMax(axis = 1).arraySync();
 
 		const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
+		console.log('decoded text', decoded_text.join(''));
 		const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
 		console.log('postproc text','<', postproc_text, '>')
 
