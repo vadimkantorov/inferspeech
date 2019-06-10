@@ -23,3 +23,12 @@ python3 speech2text.py --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.o
 # save the model to TensorFlow.js format
 python3 speech2text.py --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.tfjs
 ```
+
+# Browser demo with tfjs (work in progress)
+```shell
+# server the tfjs modet and tfjs.html file
+python3 -m http.server
+
+# open the demo in the default browser
+xdg-open http://localhost:8000/tfjs.html
+```
