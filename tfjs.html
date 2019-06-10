@@ -10,9 +10,12 @@
 		const model = await tf.loadLayersModel(modelUrl);
 		
 		const input = tf.zeros([1, 1000, 64], 'float32');
-		const output = model.predict(input);
+		const scores = model.predict(input).squeeze(0);
+		const decoded_greedy = scores.argMax(axis = 1).arraySync();
 
-		console.log(input.shape, output.shape);
+		const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
+		const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
+		console.log('postproc text','<', postproc_text, '>')
 
 	})();
 	</script>
