@@ -58,11 +58,10 @@ def load_model(model_weights, batch_norm_eps = 0.001, backend = torch):
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
-	parser.add_argument('-i', '--input_path', default = 'test.wav')
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
-	parser.add_argument('--onnx', action = 'store_true')
-	parser.add_argument('--keras', action = 'store_true')
-	parser.add_argument('--tfjs', action = 'store_true')
+	parser.add_argument('-i', '--input_path')
+	parser.add_argument('--onnx')
+	parser.add_argument('--tfjs')
 	args = parser.parse_args()
 
 	model = load_model(args.weights, backend = torch)
@@ -88,7 +87,8 @@ if __name__ == '__main__':
 		print(postproc_text)
 
 	if args.onnx:
-		torch.onnx.export(model, batch, args.weights + '.onnx', input_names = ['input'], output_names = ['output'])
+		batch = torch.zeros(1, 1000, 64, dtype = torch.float32)
+		torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
 	
 	if args.tfjs:
 		convert_tf_saved_model = None
@@ -96,4 +96,4 @@ if __name__ == '__main__':
 		import tensorflowjs 
 		import tensorflow.keras
 		model = load_model(args.weights, backend = tensorflow.keras)
-		tensorflowjs.converters.save_keras_model(model, args.weights + '.tfjs')
+		tensorflowjs.converters.save_keras_model(model, args.tfjs)
