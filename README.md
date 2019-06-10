@@ -26,7 +26,11 @@ python3 speech2text.py --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.t
 
 # Browser demo with tfjs (work in progress)
 ```shell
-# server the tfjs modet and tfjs.html file
+# download and extract the exported tfjs model
+https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.tfjs.tar.gz
+tar -xf w2l_plus_large_mp.tfjs.tar.gz
+
+# server the tfjs model and tfjs.html file
 python3 -m http.server
 
 # open the demo in the default browser
