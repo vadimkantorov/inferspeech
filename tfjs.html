@@ -2,15 +2,34 @@
   <head> </head>
 
   <body>
+	<img hidden id="pcm16le" src="pcm16le.png" />
 	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.1.2/dist/tf.min.js"></script>
 	<script>
+	function stft(signal, params)
+	{
+		return tf.zeros([600, 64], 'float32');
+	}
+
 	(async () => {
 
 		const modelUrl = 'w2l_plus_large_mp.tfjs/model.json';
 		const model = await tf.loadLayersModel(modelUrl);
 		
-		const input = tf.zeros([1, 1000, 64], 'float32');
-		const scores = model.predict(input).squeeze(0);
+		const sample_rate = 16000, signal = tf.browser.fromPixels(document.getElementById('pcm16le'), 1).squeeze();
+		const batch = stft(signal, {
+			samplerate : sample_rate,
+			winlen : 20e-3,
+			winstep : 10e-3,
+			nfilt : 64,
+			nfft : 512,
+			lowfreq : 0,
+			highfreq : sample_rate / 2,
+			preemph : 0.97
+		}).expandDims();
+
+		console.log(signal.shape, batch.shape);
+
+		const scores = model.predict(batch).squeeze(0);
 		const decoded_greedy = scores.argMax(axis = 1).arraySync();
 
 		const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));

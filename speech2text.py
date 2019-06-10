@@ -70,6 +70,10 @@ if __name__ == '__main__':
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
+		if args.tfjs:
+			import cv2; cv2.imwrite('pcm16le.png', signal.astype(np.uint16))
+
+	if not args.tfjs and args.input_path:
 		features = torch.from_numpy(python_speech_features.logfbank(signal=signal,
 								samplerate=sample_rate,
 								winlen=20e-3,
