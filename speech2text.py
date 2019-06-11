@@ -6,6 +6,7 @@ import scipy.io.wavfile
 import python_speech_features
 import torch
 import torch.nn as nn
+import math
 
 def load_model(model_weights, batch_norm_eps = 0.001, backend = torch):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
@@ -56,6 +57,64 @@ def load_model(model_weights, batch_norm_eps = 0.001, backend = torch):
 		model.build((None, None, 64))
 	return model
 
+def frontend_(signal):
+	def frame(signal, frameLength, frameStep):
+		start = 0;
+		output = [];
+		while (start + frameLength <= signal.numel()):
+			output.append(signal[start:start + frameLength])
+			start += frameStep
+		return torch.stack(output)#.as2D(output.length, frameLength);
+
+	def stft_abs_sq(signal, nfft, frameLength, frameStep):
+		fftLength = nfft;
+		framedSignal = frame(signal, frameLength, frameStep);
+		framedSignal = torch.cat([framedSignal, torch.zeros(len(framedSignal), fftLength - framedSignal.shape[1])], dim = -1)
+		windowedSignal = torch.mul(framedSignal, torch.hann_window(nfft));
+
+		torch_abs = lambda x: (x ** 2).sum(dim = -1).sqrt()
+		output = [];
+		for i in range(framedSignal.shape[0]):
+			output.append(torch_abs(torch.rfft(windowedSignal[i, :fftLength], 1)) ** 2);
+		return torch.div(torch.stack(output), nfft);
+
+	def preemphasis(signal, coeff):
+		return torch.cat([signal[:1], torch.sub(signal[1:], torch.mul(signal[:-1], coeff))]);
+	
+	def get_filterbanks(nfilt, nfft, samplerate):
+		hz2mel = lambda hz: 2595 * math.log10(1+hz/700.);
+		mel2hz = lambda mel: torch.mul(700, torch.sub(torch.pow(10, torch.div(mel, 2595)), 1));
+
+		lowfreq = 0;
+		highfreq = samplerate // 2;
+		lowmel = hz2mel(lowfreq);
+		highmel = hz2mel(highfreq);
+		melpoints = torch.linspace(lowmel,highmel,nfilt+2);
+		bin = torch.floor(torch.mul(nfft+1, torch.div(mel2hz(melpoints), samplerate))).tolist();
+
+		fbank = torch.zeros([nfilt, nfft // 2 + 1]).tolist();
+		for j in range(nfilt):
+			for i in range(int(bin[j]), int(bin[j+1])):
+				fbank[j][i] = (i - bin[j]) / (bin[j+1]-bin[j])
+			for i in range(int(bin[j+1]), int(bin[j+2])):
+				fbank[j][i] = (bin[j+2]-i) / (bin[j+2]-bin[j+1])
+		return torch.tensor(fbank);
+	
+	sample_rate = 16000;
+	window_length = 20 * sample_rate // 1000;
+	hop_length = 10 * sample_rate // 1000;
+	nfft = 512;
+	nfilt = 64;
+
+	signal = preemphasis(signal, 0.97);
+	pspec = stft_abs_sq(signal, nfft, window_length, hop_length);
+	mel_basis = get_filterbanks(nfilt, nfft, sample_rate).t();
+	features = torch.log(torch.add(torch.matmul(pspec, mel_basis), 1e-20));
+
+	batch = features.unsqueeze(0);
+	return batch
+
+
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
@@ -64,16 +123,16 @@ if __name__ == '__main__':
 	parser.add_argument('--tfjs')
 	args = parser.parse_args()
 
+	torch.set_grad_enabled(False)
 	model = load_model(args.weights, backend = torch)
 	model.eval()
-	torch.set_grad_enabled(False)
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
 		if len(signal) % sample_rate != 0:
 			signal = np.pad(signal, (0, (len(signal) + sample_rate) // sample_rate * sample_rate - len(signal)), mode = 'constant')
 		if args.tfjs:
-			signal_ = (signal.astype(np.int32) + np.iinfo(np.int16).min).astype(np.uint16);
+			signal_ = (signal.astype(np.int32) - np.iinfo(np.int16).min).astype(np.uint16);
 			signal_ = np.frombuffer(signal_.tobytes(), dtype = np.uint8).reshape(-1, sample_rate // 20, 4)
 			import cv2; cv2.imwrite('pcm16le.png', signal_[:, :, [2, 1, 0, 3]])
 
@@ -87,6 +146,13 @@ if __name__ == '__main__':
 								lowfreq=0, highfreq=sample_rate/2,
 								preemph=0.97)).to(torch.float32)
 		batch = features.t().unsqueeze(0)
+
+		#batch = frontend_(torch.from_numpy(signal).to(torch.float32)).transpose(-1, -2)
+
+		#m = batch.mean()
+		#s = batch.std()
+		#batch = (batch - m) / s
+
 		scores = model(batch).squeeze(0)
 
 		decoded_greedy = scores.argmax(dim = 0).tolist()
