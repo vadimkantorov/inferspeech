@@ -9,21 +9,9 @@
 	<script src="https://cdn.jsdelivr.net/npm/wavefile"></script>
 	<script>
 
-	function frame(signal, frameLength, frameStep)
-	{
-		let start = 0;
-		const output = [];
-		while (start + frameLength <= signal.size)
-		{
-			output.push(signal.slice(start, frameLength));
-			start += frameStep;
-		}
-		return tf.concat(output).as2D(output.length, frameLength);
-	} 
-
 	function stft_abs_sq(signal, nfft, frameLength, frameStep)
 	{
-		let framedSignal = frame(signal, frameLength, frameStep);
+		let framedSignal = tf.signal.frame(signal, frameLength, frameStep);
 		framedSignal = tf.concat([framedSignal, tf.zeros([framedSignal.shape[0], nfft - framedSignal.shape[1]])], 1);
 		const windowedSignal = tf.mul(framedSignal, tf.hannWindow(nfft));
 
