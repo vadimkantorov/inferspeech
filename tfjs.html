@@ -2,8 +2,11 @@
   <head> </head>
 
   <body>
+	<input type="file" accept=".wav"></input>
+	<button onclick="transcribe()">Transcribe</button>
 	<img hidden id="pcm16le" src="pcm16le.png" />
-	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.1.2/dist/tf.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.2/dist/tf.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/wavefile"></script>
 	<script>
 
 	function frame(signal, frameLength, frameStep)
@@ -60,43 +63,59 @@
 		return tf.tensor(fbank);
 	}
 
-	(async () => {
-
-		
-		const sample_rate = 16000;
-		const window_length = 20 * sample_rate / 1000;
-		const hop_length = 10 * sample_rate / 1000;
-		const nfft = 512;
-		const nfilt = 64;
-
-		const features = tf.tidy(() => {
-			let signal = tf.browser.fromPixels(document.getElementById('pcm16le'), 4);
-			signal = signal.reshape([-1, 2]).transpose();
-			signal = signal.slice(1, 1).mul(tf.scalar(256, 'int32')).add(signal.slice(0, 1)).sub(tf.scalar(32768, 'int32')).squeeze();
-
-			signal = preemphasis(signal.asType('float32'), 0.97);
-			const pspec = stft_abs_sq(signal, nfft, window_length, hop_length);
+	function transcribe()
+	{
+		let reader = new FileReader();
+		reader.readAsArrayBuffer(document.getElementsByTagName('input')[0].files[0]);
+		reader.onload = function() 
+		{
+			const bytes = new Uint8Array(reader.result);
+			const wav = new WaveFile(bytes);
+			const pcm_int16 = new Int16Array(wav.data.samples.buffer);
+			const pcm_float32 = Float32Array.from(pcm_int16);
+			const signal = tf.tensor(pcm_float32);
+			const pspec = stft_abs_sq(preemphasis(signal, 0.97), nfft, window_length, hop_length);
 			const mel_basis = get_filterbanks(nfilt, nfft, sample_rate).transpose();
 			const features = tf.log(tf.add(tf.matMul(pspec, mel_basis), 1e-20));
-			return features;
-		});
+		}
+	}
 
-		let batch = features.expandDims();
-		//const m = tf.mean(features);
-		//const s = tf.sqrt(tf.mean(tf.squaredDifference(features, m)));
-		//batch = tf.div(tf.sub(batch, m), s);
+	//(async () => {
 
-		const modelUrl = 'w2l_plus_large_mp.tfjs/model.json';
-		const model = await tf.loadLayersModel(modelUrl);
-		const scores = model.predict(batch).squeeze(0);
-		const decoded_greedy = scores.argMax(axis = 1).arraySync();
+	//	
+	//	const sample_rate = 16000;
+	//	const window_length = 20 * sample_rate / 1000;
+	//	const hop_length = 10 * sample_rate / 1000;
+	//	const nfft = 512;
+	//	const nfilt = 64;
 
-		const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
-		console.log('decoded text', decoded_text.join(''));
-		const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
-		console.log('postproc text','<', postproc_text, '>')
+	//	const features = tf.tidy(() => {
+	//		let signal = tf.browser.fromPixels(document.getElementById('pcm16le'), 4);
+	//		signal = signal.reshape([-1, 2]).transpose();
+	//		signal = signal.slice(1, 1).mul(tf.scalar(256, 'int32')).add(signal.slice(0, 1)).sub(tf.scalar(32768, 'int32')).squeeze();
 
-	})();
+	//		signal = preemphasis(signal.asType('float32'), 0.97);
+	//		const pspec = stft_abs_sq(signal, nfft, window_length, hop_length);
+	//		const mel_basis = get_filterbanks(nfilt, nfft, sample_rate).transpose();
+	//		const features = tf.log(tf.add(tf.matMul(pspec, mel_basis), 1e-20));
+	//		return features;
+	//	});
+
+	//	let batch = features.expandDims();
+	//	const m = tf.mean(features);
+	//	const s = tf.sqrt(tf.mean(tf.squaredDifference(features, m)));
+	//	batch = tf.div(tf.sub(batch, m), s);
+
+	//	const modelUrl = 'w2l_plus_large_mp.tfjs/model.json';
+	//	const model = await tf.loadLayersModel(modelUrl);
+	//	const scores = model.predict(batch).squeeze(0);
+	//	const decoded_greedy = scores.argMax(axis = 1).arraySync();
+
+	//	const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
+	//	const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
+	//	console.log('postproc text','<', postproc_text, '>')
+
+	//})();
 	</script>
   </body>
 </html>

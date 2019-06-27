@@ -129,14 +129,32 @@ if __name__ == '__main__':
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
+
 		if len(signal) % sample_rate != 0:
 			signal = np.pad(signal, (0, (len(signal) + sample_rate) // sample_rate * sample_rate - len(signal)), mode = 'constant')
-		if args.tfjs:
-			signal_ = (signal.astype(np.int32) - np.iinfo(np.int16).min).astype(np.uint16);
-			signal_ = np.frombuffer(signal_.tobytes(), dtype = np.uint8).reshape(-1, sample_rate // 20, 4)
-			import cv2; cv2.imwrite('pcm16le.png', signal_[:, :, [2, 1, 0, 3]])
+
+		signal_ = (signal.astype(np.int32) - np.iinfo(np.int16).min).astype(np.uint16);
+		signal_ = np.frombuffer(signal_.tobytes(), dtype = np.uint8).reshape(-1, sample_rate // 20, 4)
+		import cv2; cv2.imwrite('pcm16le.png', signal_[:, :, [2, 1, 0, 3]])
 
 	if not args.tfjs and args.input_path:
+		#batch = frontend_(torch.from_numpy(signal).to(torch.float32)).transpose(-1, -2)
+		#sample_freq = sample_rate
+		#window_size = 20e-3
+		#window_stride = 10e-3
+		#num_features = 64
+		#pad_to = 8
+		#normalize_signal = lambda signal: signal / (np.max(np.abs(signal)) + 1e-5)
+		#signal = (normalize_signal(signal.astype(np.float32)) * 32767.0).astype(np.int16)
+		#audio_duration = len(signal) * 1.0 / sample_freq
+		#n_window_size = int(sample_freq * window_size)
+		#n_window_stride = int(sample_freq * window_stride)
+		## making sure length of the audio is divisible by 8 (fp16 optimization)
+		#length = 1 + int(math.ceil((1.0 * signal.shape[0] - n_window_size) / n_window_stride))
+		#if length % pad_to != 0:
+		#	pad_size = (pad_to - length % pad_to) * n_window_stride
+		#	signal = np.pad(signal, (0, pad_size), mode='constant')
+
 		features = torch.from_numpy(python_speech_features.logfbank(signal=signal,
 								samplerate=sample_rate,
 								winlen=20e-3,
@@ -146,13 +164,11 @@ if __name__ == '__main__':
 								lowfreq=0, highfreq=sample_rate/2,
 								preemph=0.97)).to(torch.float32)
 		batch = features.t().unsqueeze(0)
-
-		#batch = frontend_(torch.from_numpy(signal).to(torch.float32)).transpose(-1, -2)
-
-		#m = batch.mean()
-		#s = batch.std()
-		#batch = (batch - m) / s
-
+		m = batch.mean()
+		s = batch.std()
+		batch = (batch - m) / s
+		
+		#import pickle; o, i = pickle.load(open('model_output.pickle', 'rb'))['logits']['/deepspeech.pytorch/OpenSeq2Seq/data/librispeech/LibriSpeech/test-clean-wav/121-123852-0004.wav']
 		scores = model(batch).squeeze(0)
 
 		decoded_greedy = scores.argmax(dim = 0).tolist()
@@ -160,14 +176,14 @@ if __name__ == '__main__':
 		postproc_text = ''.join(c for i, c in enumerate(decoded_text) if i == 0 or c != decoded_text[i - 1]).replace('|', '')
 		print(postproc_text)
 
-	if args.onnx:
-		batch = torch.zeros(1, 1000, 64, dtype = torch.float32)
-		torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
-	
-	if args.tfjs:
-		convert_tf_saved_model = None
-		sys.modules['tensorflowjs.converters.tf_saved_model_conversion_v2'] = sys.modules[__name__]
-		import tensorflowjs 
-		import tensorflow.keras
-		model = load_model(args.weights, backend = tensorflow.keras)
-		tensorflowjs.converters.save_keras_model(model, args.tfjs)
+	#if args.onnx:
+	#	batch = torch.zeros(1, 1000, 64, dtype = torch.float32)
+	#	torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
+	#
+	#if args.tfjs:
+	#	convert_tf_saved_model = None
+	#	sys.modules['tensorflowjs.converters.tf_saved_model_conversion_v2'] = sys.modules[__name__]
+	#	import tensorflowjs 
+	#	import tensorflow.keras
+	#	model = load_model(args.weights, backend = tensorflow.keras)
+	#	tensorflowjs.converters.save_keras_model(model, args.tfjs)
