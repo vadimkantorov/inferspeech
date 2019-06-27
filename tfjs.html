@@ -13,7 +13,7 @@
 	{
 		let framedSignal = tf.signal.frame(signal, frameLength, frameStep);
 		framedSignal = tf.concat([framedSignal, tf.zeros([framedSignal.shape[0], nfft - framedSignal.shape[1]])], 1);
-		const windowedSignal = tf.mul(framedSignal, tf.hannWindow(nfft));
+		const windowedSignal = tf.mul(framedSignal, tf.signal.hannWindow(nfft));
 
 		const output = [];
 		for (let i = 0; i < framedSignal.shape[0]; i++)
