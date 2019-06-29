@@ -100,4 +100,5 @@ if __name__ == '__main__':
 
 	if args.onnx:
 		batch = torch.zeros(1, 1000, 64, dtype = torch.float32)
+		model = load_model(args.weights, backend = torch)
 		torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
