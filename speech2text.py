@@ -82,11 +82,8 @@ if __name__ == '__main__':
 								nfft=512,
 								lowfreq=0, highfreq=sample_rate/2,
 								preemph=0.97)).to(torch.float32)
-		batch = features.t().unsqueeze(0)
-		m = batch.mean()
-		s = batch.std()
-		batch = (batch - m) / s
-		scores = model(batch).squeeze(0)
+		batch = (features.t() - features.mean()) / features.std()
+		scores = model(batch.unsqueeze(0)).squeeze(0)
 
 		decoded_greedy = scores.argmax(dim = 0).tolist()
 		decoded_text = ''.join({0 : ' ', 27 : "'", 28 : '|'}.get(c, chr(c - 1 + ord('a'))) for c in decoded_greedy)
