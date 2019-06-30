@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import math
 
-def load_model(model_weights, batch_norm_eps = 0.001):
+def load_model(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
 		modules = []
 		for i in range(repeat):
@@ -26,7 +26,7 @@ def load_model(model_weights, batch_norm_eps = 0.001):
 		conv_block(kernel_size = 25, num_channels = (640, 768), repeat = 3, padding = 12),
 		conv_block(kernel_size = 29, num_channels = (768, 896), repeat = 1, padding = 28, dilation = 2),
 		conv_block(kernel_size = 1, num_channels = (896, 1024), repeat = 1),
-		nn.Conv1d(1024, 29, 1)
+		nn.Conv1d(1024, num_classes, 1)
 	)
 
 	state_dict = {}
@@ -69,7 +69,7 @@ if __name__ == '__main__':
 		print(postproc_text)
 
 	if args.tfjs:
-		convert_tf_saved_model = None
+		convert_tf_saved_model = None # monkey-patching a module to have tfjs converter load with tf v1
 		sys.modules['tensorflowjs.converters.tf_saved_model_conversion_v2'] = sys.modules[__name__]
 		import tensorflowjs 
 		import tensorflow.keras
