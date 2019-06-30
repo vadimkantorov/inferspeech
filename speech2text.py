@@ -63,24 +63,23 @@ if __name__ == '__main__':
 		features = torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64,	nfft = 512,	lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97)).to(torch.float32)
 		batch = (features.t() - features.mean()) / features.std()
 		scores = model(batch.unsqueeze(0)).squeeze(0)
-
-		torch.save(scores, args.input_path + '.pt')
-
 		decoded_greedy = scores.argmax(dim = 0).tolist()
 		decoded_text = ''.join({0 : ' ', 27 : "'", 28 : '|'}.get(c, chr(c - 1 + ord('a'))) for c in decoded_greedy)
 		postproc_text = ''.join(c for i, c in enumerate(decoded_text) if i == 0 or c != decoded_text[i - 1]).replace('|', '')
 		print(postproc_text)
 
 	if args.tfjs:
-		convert_tf_saved_model = None # monkey-patching a module to have tfjs converter load with tf v1
+		# monkey-patching a module to have tfjs converter load with tf v1
+		convert_tf_saved_model = None
 		sys.modules['tensorflowjs.converters.tf_saved_model_conversion_v2'] = sys.modules[__name__]
 		import tensorflowjs 
-		import tensorflow.keras
-		pytorch2keras = lambda module: tensorflow.keras.layers.Conv1D(module.out_channels, module.kernel_size, input_shape = (None, module.in_channels), data_format = 'channels_last', strides = module.stride, dilation_rate = module.dilation, padding = 'same', weights = [module.weight.detach().permute(2, 1, 0).numpy(), module.bias.detach().flatten().numpy()]) if isinstance(module, nn.Conv1d) else tensorflow.keras.layers.ReLU(threshold = module.min_val, max_value = module.max_val) if isinstance(module, nn.Hardtanh) else tensorflow.keras.models.Sequential(list(map(pytorch2keras, module)))
+		import tensorflow.keras as K
+		pytorch2keras = lambda module: K.layers.Conv1D(module.out_channels, module.kernel_size, input_shape = (None, module.in_channels), data_format = 'channels_last', strides = module.stride, dilation_rate = module.dilation, padding = 'same', weights = [module.weight.detach().permute(2, 1, 0).numpy(), module.bias.detach().flatten().numpy()]) if isinstance(module, nn.Conv1d) else K.layers.ReLU(threshold = module.min_val, max_value = module.max_val) if isinstance(module, nn.Hardtanh) else K.models.Sequential(list(map(pytorch2keras, module)))
 		model, in_channels = pytorch2keras(model), model[0][0].in_channels
 		model.build((None, None, in_channels))
 		tensorflowjs.converters.save_keras_model(model, args.tfjs, quantization_dtype = getattr(np, args.tfjs_quantization_dtype or '', None))
 
 	if args.onnx:
+		# https://github.com/onnx/onnx/issues/740
 		batch = torch.zeros(1, 1000, model[0][0].in_channels, dtype = torch.float32)
 		torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
