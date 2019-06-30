@@ -52,6 +52,7 @@ if __name__ == '__main__':
 	parser.add_argument('-i', '--input_path')
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
+	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
 	args = parser.parse_args()
 
 	torch.set_grad_enabled(False)
@@ -62,6 +63,8 @@ if __name__ == '__main__':
 		features = torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64,	nfft = 512,	lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97)).to(torch.float32)
 		batch = (features.t() - features.mean()) / features.std()
 		scores = model(batch.unsqueeze(0)).squeeze(0)
+
+		torch.save(scores, args.input_path + '.pt')
 
 		decoded_greedy = scores.argmax(dim = 0).tolist()
 		decoded_text = ''.join({0 : ' ', 27 : "'", 28 : '|'}.get(c, chr(c - 1 + ord('a'))) for c in decoded_greedy)
@@ -76,7 +79,7 @@ if __name__ == '__main__':
 		pytorch2keras = lambda module: tensorflow.keras.layers.Conv1D(module.out_channels, module.kernel_size, input_shape = (None, module.in_channels), data_format = 'channels_last', strides = module.stride, dilation_rate = module.dilation, padding = 'same', weights = [module.weight.detach().permute(2, 1, 0).numpy(), module.bias.detach().flatten().numpy()]) if isinstance(module, nn.Conv1d) else tensorflow.keras.layers.ReLU(threshold = module.min_val, max_value = module.max_val) if isinstance(module, nn.Hardtanh) else tensorflow.keras.models.Sequential(list(map(pytorch2keras, module)))
 		model, in_channels = pytorch2keras(model), model[0][0].in_channels
 		model.build((None, None, in_channels))
-		tensorflowjs.converters.save_keras_model(model, args.tfjs)
+		tensorflowjs.converters.save_keras_model(model, args.tfjs, quantization_dtype = getattr(np, args.tfjs_quantization_dtype or '', None))
 
 	if args.onnx:
 		batch = torch.zeros(1, 1000, model[0][0].in_channels, dtype = torch.float32)
