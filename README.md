@@ -19,7 +19,6 @@ wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/1
 python3 speech2text.py --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav
 # transcribed: my heart doth plead that thou in him doth lie a closet never pierced with crystal eyes but the defendant doth that plea deny and says in him thy fair appearance lies
 
-
 # save the model to ONNX format
 python3 speech2text.py --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
 
