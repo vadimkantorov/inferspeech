@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import math
 
-def load_model(model_weights, batch_norm_eps = 0.001, backend = torch):
+def load_model(model_weights, batch_norm_eps = 0.001):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
 		modules = []
 		for i in range(repeat):
@@ -44,17 +44,6 @@ def load_model(model_weights, batch_norm_eps = 0.001, backend = torch):
 				kernel.unsqueeze_(0)
 			state_dict[param_name] = (kernel.permute(2, 1, 0) if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
-
-	if backend is not torch:
-		def pytorch2keras(module):
-			if isinstance(module, nn.Conv1d):
-				return backend.layers.Conv1D(module.out_channels, module.kernel_size, input_shape = (None, module.in_channels), data_format = 'channels_last', strides = module.stride, dilation_rate = module.dilation, padding = 'same', weights = [module.weight.detach().permute(2, 1, 0).numpy(), module.bias.detach().flatten().numpy()])
-			elif isinstance(module, nn.Sequential):
-				return backend.models.Sequential(list(map(pytorch2keras, module)))
-			elif isinstance(module, nn.Hardtanh):
-				return backend.layers.ReLU(threshold = module.min_val, max_value = module.max_val)
-		model = pytorch2keras(model)
-		model.build((None, None, 64))
 	return model
 
 if __name__ == '__main__':
@@ -65,23 +54,12 @@ if __name__ == '__main__':
 	parser.add_argument('--tfjs')
 	args = parser.parse_args()
 
+	torch.set_grad_enabled(False)
+	model = load_model(args.weights)
+
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
-		if len(signal) % sample_rate != 0:
-			signal = np.pad(signal, (0, (len(signal) + sample_rate) // sample_rate * sample_rate - len(signal)), mode = 'constant')
-
-		torch.set_grad_enabled(False)
-		model = load_model(args.weights, backend = torch)
-		model.eval()
-
-		features = torch.from_numpy(python_speech_features.logfbank(signal=signal,
-								samplerate=sample_rate,
-								winlen=20e-3,
-								winstep=10e-3,
-								nfilt=64,
-								nfft=512,
-								lowfreq=0, highfreq=sample_rate/2,
-								preemph=0.97)).to(torch.float32)
+		features = torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64,	nfft = 512,	lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97)).to(torch.float32)
 		batch = (features.t() - features.mean()) / features.std()
 		scores = model(batch.unsqueeze(0)).squeeze(0)
 
@@ -95,10 +73,11 @@ if __name__ == '__main__':
 		sys.modules['tensorflowjs.converters.tf_saved_model_conversion_v2'] = sys.modules[__name__]
 		import tensorflowjs 
 		import tensorflow.keras
-		model = load_model(args.weights, backend = tensorflow.keras)
+		pytorch2keras = lambda module: tensorflow.keras.layers.Conv1D(module.out_channels, module.kernel_size, input_shape = (None, module.in_channels), data_format = 'channels_last', strides = module.stride, dilation_rate = module.dilation, padding = 'same', weights = [module.weight.detach().permute(2, 1, 0).numpy(), module.bias.detach().flatten().numpy()]) if isinstance(module, nn.Conv1d) else tensorflow.keras.layers.ReLU(threshold = module.min_val, max_value = module.max_val) if isinstance(module, nn.Hardtanh) else tensorflow.keras.models.Sequential(list(map(pytorch2keras, module)))
+		model, in_channels = pytorch2keras(model), model[0][0].in_channels
+		model.build((None, None, in_channels))
 		tensorflowjs.converters.save_keras_model(model, args.tfjs)
 
 	if args.onnx:
-		batch = torch.zeros(1, 1000, 64, dtype = torch.float32)
-		model = load_model(args.weights, backend = torch)
+		batch = torch.zeros(1, 1000, model[0][0].in_channels, dtype = torch.float32)
 		torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
