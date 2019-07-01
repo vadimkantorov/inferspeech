@@ -15,9 +15,9 @@ The credit for the original [wav2letter++ model](https://arxiv.org/abs/1812.0762
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.h5
 
 # download and transcribe a wav file
+# should print: my heart doth plead that thou in him doth lie a closet never pierced with crystal eyes but the defendant doth that plea deny and says in him thy fair appearance lies
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/121-123852-0004.wav
 python3 speech2text.py --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav
-# transcribed: my heart doth plead that thou in him doth lie a closet never pierced with crystal eyes but the defendant doth that plea deny and says in him thy fair appearance lies
 
 # save the model to ONNX format
 python3 speech2text.py --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
