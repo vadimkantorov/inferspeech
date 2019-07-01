@@ -1,12 +1,12 @@
 import sys
 import argparse
+import math
 import numpy as np
 import h5py
 import scipy.io.wavfile
 import python_speech_features
 import torch
 import torch.nn as nn
-import math
 
 def load_model(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
@@ -59,7 +59,7 @@ if __name__ == '__main__':
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
-		features = torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64,	nfft = 512,	lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97)).to(torch.float32)
+		features = torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64, nfft = 512, lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97)).to(torch.float32)
 		batch = (features.t() - features.mean()) / features.std()
 		scores = model(batch.unsqueeze(0)).squeeze(0)
 		decoded_greedy = scores.argmax(dim = 0).tolist()
