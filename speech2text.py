@@ -12,8 +12,7 @@ def load_model(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
 		modules = []
 		for i in range(repeat):
-			conv = nn.Conv1d(num_channels[0] if i == 0 else num_channels[1], num_channels[1], kernel_size = kernel_size, stride = stride, dilation = dilation, padding = padding)
-			modules.append(conv)
+			modules.append(nn.Conv1d(num_channels[0] if i == 0 else num_channels[1], num_channels[1], kernel_size = kernel_size, stride = stride, dilation = dilation, padding = padding))
 			modules.append(nn.Hardtanh(0, 20, inplace = True))
 		return nn.Sequential(*modules)
 
@@ -29,20 +28,20 @@ def load_model(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 		nn.Conv1d(1024, num_classes, 1)
 	)
 
+	h = h5py.File(model_weights)
+	to_tensor = lambda path: torch.from_numpy(np.asarray(h[path])).to(torch.float32)
 	state_dict = {}
-	with h5py.File(model_weights) as h:
-		to_tensor = lambda path: torch.from_numpy(np.asarray(h[path])).to(torch.float32)
-		for param_name, param in model.state_dict().items():
-			ij = [int(c) for c in param_name if c.isdigit()]
-			if len(ij) > 1:
-				kernel, moving_mean, moving_variance, beta, gamma = [to_tensor(f'ForwardPass/w2l_encoder/conv{1 + ij[0]}{1 + ij[1] // 2}/{suffix}') for suffix in ['kernel', '/bn/moving_mean', '/bn/moving_variance', '/bn/beta', '/bn/gamma']]
-				factor = gamma * (moving_variance + batch_norm_eps).rsqrt()
-				kernel *= factor
-				bias = beta - moving_mean * factor
-			else:
-				kernel, bias = [to_tensor(f'ForwardPass/fully_connected_ctc_decoder/fully_connected/{suffix}') for suffix in ['kernel', 'bias']]	
-				kernel.unsqueeze_(0)
-			state_dict[param_name] = (kernel.permute(2, 1, 0) if 'weight' in param_name else bias).to(param.dtype)
+	for param_name, param in model.state_dict().items():
+		ij = [int(c) for c in param_name if c.isdigit()]
+		if len(ij) > 1:
+			kernel, moving_mean, moving_variance, beta, gamma = [to_tensor(f'ForwardPass/w2l_encoder/conv{1 + ij[0]}{1 + ij[1] // 2}/{suffix}') for suffix in ['kernel', '/bn/moving_mean', '/bn/moving_variance', '/bn/beta', '/bn/gamma']]
+			factor = gamma * (moving_variance + batch_norm_eps).rsqrt()
+			kernel *= factor
+			bias = beta - moving_mean * factor
+		else:
+			kernel, bias = [to_tensor(f'ForwardPass/fully_connected_ctc_decoder/fully_connected/{suffix}') for suffix in ['kernel', 'bias']]	
+			kernel.unsqueeze_(0)
+		state_dict[param_name] = (kernel.permute(2, 1, 0) if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
 	return model
 
