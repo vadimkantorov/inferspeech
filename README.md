@@ -19,7 +19,7 @@ wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/121-123852-0004.wav
 python3 speech2text.py --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav
 
-# save the model to ONNX format
+# save the model to ONNX format for inspection with https://lutzroeder.github.io/netron/
 python3 speech2text.py --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
 
 # save the model to TensorFlow.js format
