@@ -59,7 +59,7 @@ if __name__ == '__main__':
 		decoded_greedy = scores.squeeze(0).argmax(dim = 0).tolist()
 		decoded_text = ''.join({0 : ' ', 27 : "'", 28 : '|'}.get(c, chr(c - 1 + ord('A'))) for c in decoded_greedy)
 		print(i, ''.join(c for i, c in enumerate(decoded_text) if i == 0 or c != decoded_text[i - 1]).replace('|', ''))
-		loss = F.ctc_loss(F.log_softmax(scores, dim = 1).permute(2, 0, 1), labels.unsqueeze(0), torch.IntTensor([scores.shape[-1]]).to(args.device), torch.IntTensor([len(labels)]).to(args.device))
+		loss = F.ctc_loss(F.log_softmax(scores, dim = 1).permute(2, 0, 1), labels.unsqueeze(0), torch.IntTensor([scores.shape[-1]]).to(args.device), torch.IntTensor([len(labels)]).to(args.device), blank = 28)
 		model.zero_grad()
 		loss.backward()
 		signal.data.sub_(signal.grad.data.mul_(args.lr))
