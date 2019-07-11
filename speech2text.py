@@ -44,13 +44,10 @@ def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse 
 		state_dict[param_name] = (weight if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
 
-	def frontend(signal, sample_rate, window_size = 0.020, window_stride = 0.010, window = 'hann', sample_rate_ = 16000):
+	def frontend(signal, sample_rate, window_size = 0.020, window_stride = 0.010, window = 'hann'):
 		signal = signal / signal.abs().max()
-
-		if sample_rate != sample_rate_:
-			import librosa
-			sample_rate, signal = sample_rate_, torch.from_numpy(librosa.resample(signal.numpy(), sample_rate, sample_rate_))
-
+		if sample_rate == 8000:
+			signal, sample_rate = F.interpolate(signal.view(1, 1, -1), scale_factor = 2).squeeze(), 16000
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
 		nfft = win_length
@@ -149,6 +146,7 @@ if __name__ == '__main__':
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
+		assert sample_rate in [8000, 16000]
 		features = frontend(torch.from_numpy(signal).to(torch.float32), sample_rate)
 		scores = model(features.unsqueeze(0)).squeeze(0)
 		print(decode(scores))
