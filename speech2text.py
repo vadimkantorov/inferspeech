@@ -43,17 +43,20 @@ def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse 
 		state_dict[param_name] = (weight if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
 
-	def frontend(signal, sample_rate, window_size = .020, window_stride =.010, window = 'hann', sample_rate_ = 16000):
+	def frontend(signal, sample_rate, window_size = 0.020, window_stride = 0.010, window = 'hann', sample_rate_ = 16000):
 		import librosa
 		signal = signal.numpy()
 		signal = signal.astype(np.float32) / np.abs(signal).max()
 		if sample_rate != sample_rate_:
 			sample_rate, signal = sample_rate_, librosa.resample(signal, sample_rate, sample_rate_)
-		n_fft = int(sample_rate * (window_size + 1e-8))
-		win_length = n_fft
+
+		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
-		spect = np.abs(librosa.stft(signal, n_fft=n_fft, hop_length=hop_length, win_length=win_length, window=window))
-		return torch.from_numpy(spect)
+		nfft = win_length
+
+		spect = torch.stft(torch.from_numpy(signal), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
+
+		return spect
 
 	def decode(scores):
 		decoded_greedy = scores.argmax(dim = 0).tolist()
@@ -98,8 +101,8 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 		state_dict[param_name] = (kernel.permute(2, 1, 0) if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
 
-	def frontend(signal, sample_rate, nfft = 512, nfilt = 64, preemph = 0.97):
-		def get_filterbanks(nfilt, nfft, samplerate):
+	def frontend(signal, sample_rate, nfft = 512, nfilt = 64, preemph = 0.97, window_size = 0.020, window_stride = 0.010):
+		def get_melscale_filterbanks(nfilt, nfft, samplerate):
 			hz2mel = lambda hz: 2595 * math.log10(1+hz/700.)
 			mel2hz = lambda mel: torch.mul(700, torch.sub(torch.pow(10, torch.div(mel, 2595)), 1))
 
@@ -119,10 +122,11 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 			return torch.tensor(fbank)
 
 		preemphasis = lambda signal, coeff: torch.cat([signal[:1], torch.sub(signal[1:], torch.mul(signal[:-1], coeff))])
-		window_length = 20 * sample_rate // 1000
-		hop_length = 10 * sample_rate // 1000
-		pspec = torch.stft(preemphasis(signal.to(torch.float32), preemph), nfft, win_length = window_length, hop_length = hop_length, window = torch.hann_window(window_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1).t() / nfft
-		mel_basis = get_filterbanks(nfilt, nfft, sample_rate).t()
+
+		win_length = int(sample_rate * (window_size + 1e-8))
+		hop_length = int(sample_rate * (window_stride + 1e-8))
+		pspec = torch.stft(preemphasis(signal.to(torch.float32), preemph), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(win_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1).t() / nfft
+		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate).t()
 		features = torch.log(torch.add(torch.matmul(pspec, mel_basis), 1e-20)) # equivalent to torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64, nfft = 512, lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97))
 		return (features.t() - features.mean()) / features.std()
 
@@ -137,7 +141,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
 	parser.add_argument('--model', default = 'en', choices = ['en', 'ru'])
-	parser.add_argument('-i', '--input_path')
+	parser.add_argument('-i', '--input_path', default = '/mnt/c/Work/sample_ok/sample_ok/1560749203.651862.wav_1_402.79_408.523.wav')
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
 	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
