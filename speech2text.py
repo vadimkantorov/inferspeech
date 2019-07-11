@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse = False):
+def load_model_ru(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ2* '):
 	def conv_block(kernel_size, num_channels, stride = 1, padding = 0):
 		return nn.Sequential(
 			nn.Conv1d(num_channels[0], num_channels[1], kernel_size=kernel_size, stride=stride, padding=padding),
@@ -25,7 +25,7 @@ def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse 
 		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
 		conv_block(kernel_size = 31, num_channels = (768, 2048), stride = 1, padding = 15),
 		conv_block(kernel_size = 1,  num_channels = (2048, 2048), stride = 1, padding = 0),
-		nn.Conv1d(2048, num_classes, kernel_size=1, stride=1)
+		nn.Conv1d(2048, len(ABC), kernel_size=1, stride=1)
 	)
 
 	h = h5py.File(model_weights)
@@ -53,14 +53,9 @@ def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse 
 		nfft = win_length
 		return torch.stft(signal, nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
 
-	def decode(scores):
-		decoded_greedy = scores.argmax(dim = 0).tolist()
-		decoded_text = ''.join('|АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ2* '[c] for c in decoded_greedy)
-		return ''.join(c for i, c in enumerate(decoded_text) if (i == 0 or c != decoded_text[i - 1]) and c != '|')
+	return frontend, model, (lambda c: ABC[c]), ABC.index
 
-	return frontend, model, decode
-
-def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29):
+def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'|"):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
 		modules = []
 		for i in range(repeat):
@@ -77,7 +72,7 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 		conv_block(kernel_size = 25, num_channels = (640, 768), repeat = 3, padding = 12),
 		conv_block(kernel_size = 29, num_channels = (768, 896), repeat = 1, padding = 28, dilation = 2),
 		conv_block(kernel_size = 1, num_channels = (896, 1024), repeat = 1),
-		nn.Conv1d(1024, num_classes, 1)
+		nn.Conv1d(1024, len(ABC), 1)
 	)
 
 	h = h5py.File(model_weights)
@@ -124,12 +119,12 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 		features = torch.log(torch.add(torch.matmul(mel_basis, pspec), 1e-20)) 
 		return (features - features.mean()) / features.std()
 
-	def decode(scores):
-		decoded_greedy = scores.argmax(dim = 0).tolist()
-		decoded_text = ''.join({0 : ' ', 27 : "'", 28 : '|'}.get(c, chr(c - 1 + ord('a'))) for c in decoded_greedy)
-		return ''.join(c for i, c in enumerate(decoded_text) if (i == 0 or c != decoded_text[i - 1]) and c != '|')
+	return frontend, model, (lambda c: ABC[c]), ABC.index
 
-	return frontend, model, decode
+def decode(scores, idx2chr):
+	decoded_greedy = scores.argmax(dim = 0).tolist()
+	decoded_text = ''.join(map(idx2chr, decoded_greedy))
+	return ''.join(c for i, c in enumerate(decoded_text) if (i == 0 or c != decoded_text[i - 1]) and c != '|')
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
@@ -142,14 +137,14 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	torch.set_grad_enabled(False)
-	frontend, model, decode = dict(en = load_model_en, ru = load_model_ru)[args.model](args.weights)
+	frontend, model, idx2chr, chr2idx = dict(en = load_model_en, ru = load_model_ru)[args.model](args.weights)
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
 		assert sample_rate in [8000, 16000]
 		features = frontend(torch.from_numpy(signal).to(torch.float32), sample_rate)
 		scores = model(features.unsqueeze(0)).squeeze(0)
-		print(decode(scores))
+		print(decode(scores, idx2chr))
 
 	if args.tfjs:
 		# monkey-patching a module to have tfjs converter load with tf v1

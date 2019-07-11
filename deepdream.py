@@ -1,43 +1,18 @@
 import math
 import argparse
 import scipy.io.wavfile
-import librosa; import librosa.display; import numpy as np
+import numpy as np
+
 import torch
 import torch.nn.functional as F
+import matplotlib; matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 import speech2text
 
-def get_filterbanks(nfilt, nfft, samplerate):
-	hz2mel = lambda hz: 2595 * math.log10(1+hz/700.)
-	mel2hz = lambda mel: torch.mul(700, torch.sub(torch.pow(10, torch.div(mel, 2595)), 1))
-
-	lowfreq = 0
-	highfreq = samplerate // 2
-	lowmel = hz2mel(lowfreq)
-	highmel = hz2mel(highfreq)
-	melpoints = torch.linspace(lowmel,highmel,nfilt+2);
-	bin = torch.floor(torch.mul(nfft+1, torch.div(mel2hz(melpoints), samplerate))).tolist()
-
-	fbank = torch.zeros([nfilt, nfft // 2 + 1]).tolist()
-	for j in range(nfilt):
-		for i in range(int(bin[j]), int(bin[j+1])):
-			fbank[j][i] = (i - bin[j]) / (bin[j+1]-bin[j])
-		for i in range(int(bin[j+1]), int(bin[j+2])):
-			fbank[j][i] = (bin[j+2]-i) / (bin[j+2]-bin[j+1])
-	return torch.tensor(fbank)
-
-def frontend(sample_rate, signal, nfft = 512, nfilt = 64, preemph = 0.97):
-	preemphasis = lambda signal, coeff: torch.cat([signal[:1], torch.sub(signal[1:], torch.mul(signal[:-1], coeff))])
-	window_length = 20 * sample_rate // 1000
-	hop_length = 10 * sample_rate // 1000
-	pspec = torch.stft(preemphasis(signal, preemph), nfft, win_length = window_length, hop_length = hop_length, window = torch.hann_window(window_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1).t() / nfft
-	mel_basis = get_filterbanks(nfilt, nfft, sample_rate).t()
-	features = torch.log(torch.add(torch.matmul(pspec, mel_basis), 1e-20))
-	#return features.t()
-	return (features.t() - features.mean()) / features.std()
-
+import librosa; import librosa.display
+ 
 def vis(mel, scores, saliency):
-	import matplotlib; matplotlib.use('Agg')
-	import matplotlib.pyplot as plt
 
 	postproc = lambda decoded: ''.join('.' if c == '|' else c if i == 0 or c == ' ' or c != idx2chr(decoded[i - 1]) else '_' for i, c in enumerate(''.join(map(idx2chr, decoded))))
 	postproc_greedy = postproc(scores.argmax(dim = 0).tolist())
@@ -56,9 +31,6 @@ def vis(mel, scores, saliency):
 	entropy = lambda x, dim, eps = 1e-15: -(x * (x + eps).log()).sum(dim = dim)
 	
 	plt.subplot(511)
-	#log_spec = 10 * math.log10(math.e) * (mel - mel.max())
-	#D = log_spec.clamp(min = log_spec.max() - 80.0)
-	#librosa.display.specshow(D.numpy(), x_axis='time', y_axis='mel', fmax = 8000)
 	plt.imshow(mel, origin = 'lower', aspect = 'auto')
 	plt.title('Mel log-spectrogram')
 
@@ -87,9 +59,6 @@ def vis(mel, scores, saliency):
 
 	plt.savefig('vis.png', bbox_inches = 'tight', dpi = 800)
 
-idx2chr = lambda c: {0 : ' ', 27 : "'", 28 : '|'}.get(c, chr(c - 1 + ord('A')))
-chr2idx = lambda c: {' ' : 0, "'" : 27, '|' : 28}.get(c, 1 + ord(c) - ord('A'))
-
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
@@ -101,8 +70,9 @@ if __name__ == '__main__':
 	parser.add_argument('--lr', default = 1e6, type = float)
 	args = parser.parse_args()
 
-	model = speech2text.load_model(args.weights).to(args.device)
 	sample_rate, signal = scipy.io.wavfile.read(args.input_path)
+
+	frontend, model, idx2chr, chr2idx = speech2text.load_model_en(args.weights).to(args.device)
 	signal = torch.from_numpy(signal).to(torch.float32).to(args.device).requires_grad_()
 	labels = torch.IntTensor(list(map(chr2idx, args.transcript))).to(args.device)
 
@@ -110,21 +80,14 @@ if __name__ == '__main__':
 	for i in range(args.num_iter):
 		batch = frontend(sample_rate, signal).unsqueeze(0).requires_grad_(); batch.retain_grad()
 		scores = model(batch)
+		print(decode(scores.squeeze(0), idx2chr))
 
-		decoded_greedy = scores.squeeze(0).argmax(dim = 0).tolist()
-		decoded_text = ''.join(map(idx2chr, decoded_greedy))
-		print(i, ''.join(c for i, c in enumerate(decoded_text) if i == 0 or c != decoded_text[i - 1]).replace('|', ''))
-		loss = F.ctc_loss(F.log_softmax(scores, dim = 1).permute(2, 0, 1), labels.unsqueeze(0), torch.IntTensor([scores.shape[-1]]).to(args.device), torch.IntTensor([len(labels)]).to(args.device), blank = 28)
+		loss = F.ctc_loss(F.log_softmax(scores, dim = 1).permute(2, 0, 1), labels.unsqueeze(0), torch.IntTensor([scores.shape[-1]]).to(args.device), torch.IntTensor([len(labels)]).to(args.device), blank = chr2idx('|'))
 
 		model.zero_grad()
 		loss.backward()
 		
-		gradients, activations = batch.grad, batch
-		weights = gradients.clamp(min = 0).mean(dim = -1, keepdim = True)
-		saliency = -gradients #weights * activations
-
-		vis(batch[0].detach().cpu(), scores[0].detach().cpu(), saliency[0].detach().cpu())
-		
+		vis(batch[0].detach().cpu(), scores[0].detach().cpu(), (-batch.grad)[0].detach().cpu())
 
 		#signal.data.sub_(signal.grad.data.mul_(args.lr))
 		#signal.grad.data.zero_()
