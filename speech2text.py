@@ -6,6 +6,7 @@ import h5py
 import scipy.io.wavfile
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse = False):
 	def conv_block(kernel_size, num_channels, stride = 1, padding = 0):
@@ -44,19 +45,16 @@ def load_model_ru(model_weights, num_classes = 37, batch_norm_eps = 1e-05, fuse 
 	model.load_state_dict(state_dict)
 
 	def frontend(signal, sample_rate, window_size = 0.020, window_stride = 0.010, window = 'hann', sample_rate_ = 16000):
-		import librosa
-		signal = signal.numpy()
-		signal = signal.astype(np.float32) / np.abs(signal).max()
+		signal = signal / signal.abs().max()
+
 		if sample_rate != sample_rate_:
-			sample_rate, signal = sample_rate_, librosa.resample(signal, sample_rate, sample_rate_)
+			import librosa
+			sample_rate, signal = sample_rate_, torch.from_numpy(librosa.resample(signal.numpy(), sample_rate, sample_rate_))
 
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
 		nfft = win_length
-
-		spect = torch.stft(torch.from_numpy(signal), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
-
-		return spect
+		return torch.stft(signal, nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
 
 	def decode(scores):
 		decoded_greedy = scores.argmax(dim = 0).tolist()
@@ -122,13 +120,12 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29):
 			return torch.tensor(fbank)
 
 		preemphasis = lambda signal, coeff: torch.cat([signal[:1], torch.sub(signal[1:], torch.mul(signal[:-1], coeff))])
-
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
-		pspec = torch.stft(preemphasis(signal.to(torch.float32), preemph), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(win_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1).t() / nfft
-		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate).t()
-		features = torch.log(torch.add(torch.matmul(pspec, mel_basis), 1e-20)) # equivalent to torch.from_numpy(python_speech_features.logfbank(signal = signal, samplerate = sample_rate, winlen = 20e-3, winstep = 10e-3,	nfilt = 64, nfft = 512, lowfreq = 0, highfreq = sample_rate / 2, preemph = 0.97))
-		return (features.t() - features.mean()) / features.std()
+		pspec = torch.stft(preemphasis(signal, preemph), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(win_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1) / nfft 
+		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate)
+		features = torch.log(torch.add(torch.matmul(mel_basis, pspec), 1e-20)) 
+		return (features - features.mean()) / features.std()
 
 	def decode(scores):
 		decoded_greedy = scores.argmax(dim = 0).tolist()
@@ -152,7 +149,7 @@ if __name__ == '__main__':
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
-		features = frontend(torch.from_numpy(signal), sample_rate).to(torch.float32)
+		features = frontend(torch.from_numpy(signal).to(torch.float32), sample_rate)
 		scores = model(features.unsqueeze(0)).squeeze(0)
 		print(decode(scores))
 
