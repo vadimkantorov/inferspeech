@@ -2,9 +2,11 @@
   <head> </head>
 
   <body>
-	<input type="file" accept=".wav"></input>
-	<button onclick="transcribe()">Transcribe</button>
+	<input type="file" accept=".wav" onchange="onfileloaded(event)"></input>
+	<audio controls style="height:15px"></audio>
+	<br />
 	<pre>transcript will appear here</pre>
+	<button onclick="transcribe()">Transcribe</button>
 	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.2/dist/tf.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/wavefile"></script>
 	<script>
@@ -14,11 +16,9 @@
 		let framedSignal = tf.signal.frame(signal, frameLength, frameStep);
 		framedSignal = tf.concat([framedSignal, tf.zeros([framedSignal.shape[0], nfft - framedSignal.shape[1]])], 1);
 		const windowedSignal = tf.mul(framedSignal, tf.signal.hannWindow(nfft));
-
 		const output = [];
 		for (let i = 0; i < framedSignal.shape[0]; i++)
 			output.push(tf.square(tf.abs(tf.rfft(windowedSignal.slice([i, 0], [1, nfft])))));
-
 		return tf.div(tf.concat(output), nfft);
 	}
 
@@ -80,10 +80,15 @@
 			const decoded_greedy = scores.argMax(axis = 1).arraySync();
 
 			const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
-			return decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
-			document.getElementsByTagName('pre')[0].innerText = decoded_text;
+			const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
+			document.getElementsByTagName('pre')[0].innerText = postproc_text;
 		};
 		reader.readAsArrayBuffer(document.getElementsByTagName('input')[0].files[0]);
+	}
+
+	function onfileloaded(event)
+	{
+		document.getElementsByTagName('audio')[0].src = URL.createObjectURL(event.target.files[0]);
 	}
 	</script>
   </body>
