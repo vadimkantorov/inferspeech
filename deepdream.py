@@ -10,8 +10,6 @@ import matplotlib.pyplot as plt
 
 import speech2text
 
-import librosa; import librosa.display
- 
 def vis(mel, scores, saliency):
 
 	postproc = lambda decoded: ''.join('.' if c == '|' else c if i == 0 or c == ' ' or c != idx2chr(decoded[i - 1]) else '_' for i, c in enumerate(''.join(map(idx2chr, decoded))))
@@ -87,10 +85,10 @@ if __name__ == '__main__':
 		model.zero_grad()
 		loss.backward()
 		
-		vis(batch[0].detach().cpu(), scores[0].detach().cpu(), (-batch.grad)[0].detach().cpu())
+		vis(batch[0].detach().cpu(), scores[0].detach().cpu(), (-batch.grad)[0].detach().cpu()) if i == 0 else None
 
-		#signal.data.sub_(signal.grad.data.mul_(args.lr))
-		#signal.grad.data.zero_()
+		signal.data.sub_(signal.grad.data.mul_(args.lr))
+		signal.grad.data.zero_()
 		print(i, float(loss))
 
 	scipy.io.wavfile.write(args.output_path, sample_rate, signal.detach().cpu().to(torch.int16).numpy())
