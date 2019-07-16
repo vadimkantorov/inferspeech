@@ -51,7 +51,7 @@ def load_model_ru(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁ�
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
 		nfft = win_length
-		return torch.stft(signal, nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
+		return torch.stft(signal, nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft).type_as(signal), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
 
 	return frontend, model, (lambda c: ABC[c]), ABC.index
 
