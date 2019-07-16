@@ -299,11 +299,25 @@ def analyze(ref, hyp):
 	print(h)
 	assert len(r) == len(h)
 	a = dict(
-		ok = sum(1 if r[i] == h[i] else 0 for i in range(len(r))), 
-		replace = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] != '|' else 0 for i in range(len(r))),
-		delete = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] == '|' else 0 for i in range(len(r))),
-		insert = sum(1 if r[i] == '|' and h[i] != '|' else 0 for i in range(len(r))),
-		total = len(r)
+		chars = dict(
+			ok = sum(1 if r[i] == h[i] else 0 for i in range(len(r))), 
+			replace = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] != '|' else 0 for i in range(len(r))),
+			delete = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] == '|' else 0 for i in range(len(r))),
+			insert = sum(1 if r[i] == '|' and h[i] != '|' else 0 for i in range(len(r))),
+			total = len(r)
+		),
+		spaces = dict(
+			delete = sum(1 if r[i] == ' ' and h[i] != ' ' else 0 for i in range(len(r))),
+			insert = sum(1 if h[i] == ' ' and r[i] != ' ' else 0 for i in range(len(r))),
+			total = sum(1 if r[i] == ' ' else 0 for i in range(len(r)))
+		),
+		words = dict(
+			missing_prefix = 0,
+			missing_suffix = 0,
+			delete = 0,
+			replace = 0,
+			total = 0
+		)
 	)
 	return a
 
