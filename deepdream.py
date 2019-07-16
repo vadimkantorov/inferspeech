@@ -12,8 +12,6 @@ import matplotlib.pyplot as plt
 
 import speech2text
 
-import librosa; import librosa.display
- 
 def vis(mel, scores, saliency):
 
     postproc = lambda decoded: ''.join('.' if c == '|' else c if i == 0 or c == ' ' or c != idx2chr(decoded[i - 1]) else '_' for i, c in enumerate(''.join(map(idx2chr, decoded))))
@@ -66,6 +64,7 @@ def vis(mel, scores, saliency):
         return f.read()
 
 if __name__ == '__main__':
+<<<<<<< HEAD
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', default = 'checkpoint_0010_epoch_01_iter_62500.model.h5')
     parser.add_argument('-o', '--output_path', default = 'dream.html')
@@ -127,3 +126,39 @@ if __name__ == '__main__':
 
     report += '</body></html>'
     open(args.output_path, 'w').write(report)
+=======
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
+	parser.add_argument('-i', '--input_path', default = '121-123852-0004.wav')
+	parser.add_argument('-o', '--output_path', default = 'dream.wav')
+	parser.add_argument('-t', '--transcript', default = '''MY HEART DOTH PLEAD THAT THOU IN HIM DOST LIE A CLOSET NEVER PIERC'D WITH CRYSTAL EYES BUT THE DEFENDANT DOTH THAT PLEA DENY AND SAYS IN HIM THY FAIR APPEARANCE LIES''')
+	parser.add_argument('--device', default = 'cpu')
+	parser.add_argument('--num_iter', default = 1, type = int)
+	parser.add_argument('--lr', default = 1e6, type = float)
+	args = parser.parse_args()
+
+	sample_rate, signal = scipy.io.wavfile.read(args.input_path)
+
+	frontend, model, idx2chr, chr2idx = speech2text.load_model_en(args.weights).to(args.device)
+	signal = torch.from_numpy(signal).to(torch.float32).to(args.device).requires_grad_()
+	labels = torch.IntTensor(list(map(chr2idx, args.transcript))).to(args.device)
+
+	print('!', args.transcript)
+	for i in range(args.num_iter):
+		batch = frontend(sample_rate, signal).unsqueeze(0).requires_grad_(); batch.retain_grad()
+		scores = model(batch)
+		print(decode(scores.squeeze(0), idx2chr))
+
+		loss = F.ctc_loss(F.log_softmax(scores, dim = 1).permute(2, 0, 1), labels.unsqueeze(0), torch.IntTensor([scores.shape[-1]]).to(args.device), torch.IntTensor([len(labels)]).to(args.device), blank = chr2idx('|'))
+
+		model.zero_grad()
+		loss.backward()
+		
+		vis(batch[0].detach().cpu(), scores[0].detach().cpu(), (-batch.grad)[0].detach().cpu()) if i == 0 else None
+
+		signal.data.sub_(signal.grad.data.mul_(args.lr))
+		signal.grad.data.zero_()
+		print(i, float(loss))
+
+	scipy.io.wavfile.write(args.output_path, sample_rate, signal.detach().cpu().to(torch.int16).numpy())
+>>>>>>> 6943fbb9f97ee9719db7a9eb9678df86e062942e
