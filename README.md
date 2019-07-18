@@ -33,7 +33,7 @@ python3 speech2text.py --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.t
 # Browser demo with TensorFlow.js (work in progress)
 ```shell
 # download and extract the exported tfjs model
-https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.tfjs.tar.gz
+wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.tfjs.tar.gz
 tar -xf w2l_plus_large_mp.tfjs.tar.gz
 
 # serve the tfjs model and demo.html file
