@@ -115,7 +115,7 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC =
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
 		pspec = torch.stft(preemphasis(signal, preemph), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(win_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1) / nfft 
-		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate)
+		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate).type_as(pspec)
 		features = torch.log(torch.add(torch.matmul(mel_basis, pspec), 1e-20)) 
 		return (features - features.mean()) / features.std()
 
