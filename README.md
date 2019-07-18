@@ -18,16 +18,16 @@ wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/c
 # download and transcribe a wav file (16 kHz)
 # should print: my heart doth plead that thou in him doth lie a closet never pierced with crystal eyes but the defendant doth that plea deny and says in him thy fair appearance lies
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/121-123852-0004.wav
-python3 speech2text.py --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav
+python3 speech2text.py --model en --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav
 
 # transcribe some Russian wav file
-python3 speech2text.py --weights checkpoint_0010_epoch_01_iter_62500.model.h5 --model ru -i some_test.wav
+python3 speech2text.py --model ru --weights checkpoint_0010_epoch_01_iter_62500.model.h5 -i some_test.wav
 
 # save the model to ONNX format for inspection with https://lutzroeder.github.io/netron/
-python3 speech2text.py --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
+python3 speech2text.py --model en --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
 
 # save the model to TensorFlow.js format
-python3 speech2text.py --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.tfjs
+python3 speech2text.py --model en --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.tfjs
 ```
 
 # Browser demo with TensorFlow.js (work in progress)
