@@ -134,6 +134,7 @@ if __name__ == '__main__':
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
 	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
+	parser.add_argument('--device', default = 'cpu')
 	args = parser.parse_args()
 
 	torch.set_grad_enabled(False)
@@ -143,7 +144,7 @@ if __name__ == '__main__':
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
 		assert sample_rate in [8000, 16000]
 		features = frontend(torch.from_numpy(signal).to(torch.float32), sample_rate)
-		scores = model(features.unsqueeze(0)).squeeze(0)
+		scores = model.to(args.device)(features.unsqueeze(0).to(args.device)).squeeze(0)
 		print(decode(scores, idx2chr))
 
 	if args.tfjs:
