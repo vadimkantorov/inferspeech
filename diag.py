@@ -277,8 +277,8 @@ class Hirschberg(Alignment):
             self.mode = mode
         return self.align_rec(self.seq_a, self.seq_b)
 
-def analyze(ref, hyp):
-	ref, hyp = Hirschberg().align(list(ref), list(hyp))
+def analyze(ref, hyp, phonetic_replace_groups = []):
+	ref, hyp = Needleman().align(list(ref), list(hyp))
 	r, h = '', ''
 	i = 0
 	while i < len(ref):
@@ -295,13 +295,24 @@ def analyze(ref, hyp):
 			h += hyp[i]
 			i += 1
 
+	def words():
+		k = None
+		for i in range(1 + len(r)):
+			if i == len(r) or r[i] == ' ':
+				yield r[k : i], h[k : i]
+				k = None
+			elif r[i] != '|' and r[i] != ' ' and k is None:
+				k = i
+
 	print(r)
 	print(h)
 	assert len(r) == len(h)
+	phonetic_group = lambda c: ([i for i, g in enumerate(phonetic_replace_groups) if c in g] + [c])[0]
 	a = dict(
 		chars = dict(
 			ok = sum(1 if r[i] == h[i] else 0 for i in range(len(r))), 
 			replace = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] != '|' else 0 for i in range(len(r))),
+            replace_phonetic = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] != '|' and phonetic_group(r[i]) == phonetic_group(h[i]) else 0 for i in range(len(r))), 
 			delete = sum(1 if r[i] != '|' and r[i] != h[i] and h[i] == '|' else 0 for i in range(len(r))),
 			insert = sum(1 if r[i] == '|' and h[i] != '|' else 0 for i in range(len(r))),
 			total = len(r)
@@ -312,19 +323,22 @@ def analyze(ref, hyp):
 			total = sum(1 if r[i] == ' ' else 0 for i in range(len(r)))
 		),
 		words = dict(
-			missing_prefix = 0,
-			missing_suffix = 0,
-			delete = 0,
-			replace = 0,
-			total = 0
+			missing_prefix = sum(1 if h_[0] in ' |' else 0 for r_, h_ in words()),
+			missing_suffix = sum(1 if h_[-1] in ' |' else 0 for r_, h_ in words()),
+			ok_prefix_suffix = sum(1 if h_[0] not in ' |' and h_[-1] not in ' |' else 0 for r_, h_ in words()),
+		    delete = sum(1 if h_.count('|') > len(r_) // 2 else 0 for r_, h_ in words()),
+			replace = sum(1 if sum(1 if h_[i] not in ' |' and h_[i] != r_[i] else 0 for i in range(len(r_))) > len(r_) // 2 else 0 for r_, h_ in words()),
+			total = sum(1 if c == ' ' else 0 for c in ref) + 1
 		)
 	)
 	return a
 
+RU_PHONETIC_REPLACE_GROUPS = ['АО', 'БП', 'ЗСЦ', 'ВФ', 'ГК', 'ДТ', 'ЧЖШЩ', 'ЭЕИ', 'РЛ', 'ЮУ']
+
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--ref')
-	parser.add_argument('--hyp')
+	parser.add_argument('--ref', default = 'ОН У НАС ПРИХОДИТ ПОРА И СООТВЕТСТВЕННО ПОДПИСИ МЫ ПОЛУЧИМ ПО НОВОМУ ГОСТУ И ОТПРАВЛЯТЬ МЫ СМО')
+	parser.add_argument('--hyp', default = 'КРОНЛАС ПРЕХОДИТ ПОТРА ИПО ПОПИТЕМЫ ПОЛУЧИЛ ПО НООГУ ГОСИРЛЯ')
 	args = parser.parse_args()
 
-	print(analyze(args.ref, args.hyp))
+	print(analyze(args.ref, args.hyp, phonetic_replace_groups = RU_PHONETIC_REPLACE_GROUPS))
