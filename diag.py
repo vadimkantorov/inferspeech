@@ -345,5 +345,5 @@ if __name__ == '__main__':
 
 	import Levenshtein
 	edit_distance = Levenshtein.distance(args.ref.replace(' ', ''), args.hyp.replace(' ', ''))
-	ref_len = len(args.ref)
+	ref_len = len(args.ref.replace(' ', ''))
 	print(f'Length: {ref_len} | Edit distance: {edit_distance} | CER: {edit_distance / ref_len:.02%}')
