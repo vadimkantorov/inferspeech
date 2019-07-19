@@ -342,3 +342,6 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	print(analyze(args.ref, args.hyp, phonetic_replace_groups = RU_PHONETIC_REPLACE_GROUPS))
+
+    import Levenshtein
+    print('CER', Levenshtein.distance(args.ref.replace(' ', ''), args.hyp.replace(' ', '')))

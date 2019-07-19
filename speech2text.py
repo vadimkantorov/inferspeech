@@ -130,7 +130,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
 	parser.add_argument('--model', default = 'en', choices = ['en', 'ru'])
-	parser.add_argument('-i', '--input_path', default = '/mnt/c/Work/sample_ok/sample_ok/1560749203.651862.wav_1_402.79_408.523.wav')
+	parser.add_argument('-i', '--input_path', required = True)
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
 	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
