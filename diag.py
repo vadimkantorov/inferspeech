@@ -337,8 +337,8 @@ RU_PHONETIC_REPLACE_GROUPS = ['АО', 'БП', 'ЗСЦ', 'ВФ', 'ГК', 'ДТ', 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--ref', default = 'ОН У НАС ПРИХОДИТ ПОРА И СООТВЕТСТВЕННО ПОДПИСИ МЫ ПОЛУЧИМ ПО НОВОМУ ГОСТУ И ОТПРАВЛЯТЬ МЫ СМО')
-	parser.add_argument('--hyp', default = 'КРОНЛАС ПРЕХОДИТ ПОТРА ИПО ПОПИТЕМЫ ПОЛУЧИЛ ПО НООГУ ГОСИРЛЯ')
+	parser.add_argument('--ref')
+	parser.add_argument('--hyp')
 	args = parser.parse_args()
 
 	print(analyze(args.ref, args.hyp, phonetic_replace_groups = RU_PHONETIC_REPLACE_GROUPS))
