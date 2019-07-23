@@ -11,20 +11,23 @@
 	<script src="https://cdn.jsdelivr.net/npm/wavefile"></script>
 	<script>
 
-	function stft_abs_sq(signal, nfft, frameLength, frameStep)
+	function stft_abs_sq(signal, nfft, frameLength, frameStep, preemphasis)
 	{
-		let framedSignal = tf.signal.frame(signal, frameLength, frameStep);
+		const preemp = tf.concat([tf.slice1d(signal, 0, 1), tf.sub(tf.slice1d(signal, 1, signal.size - 1), tf.mul(tf.slice1d(signal, 0, signal.size - 1), preemphasis))]);
+		console.log('preemp done')
+		let framedSignal = tf.signal.frame(preemp, frameLength, frameStep);
+		console.log('framed done')
 		framedSignal = tf.concat([framedSignal, tf.zeros([framedSignal.shape[0], nfft - framedSignal.shape[1]])], 1);
+		console.log('padding done');
 		const windowedSignal = tf.mul(framedSignal, tf.signal.hannWindow(nfft));
+		console.log('windowing done');
 		const output = [];
 		for (let i = 0; i < framedSignal.shape[0]; i++)
 			output.push(tf.square(tf.abs(tf.rfft(windowedSignal.slice([i, 0], [1, nfft])))));
-		return tf.div(tf.concat(output), nfft);
-	}
-
-	function preemphasis(signal, coeff)
-	{
-		return tf.concat([tf.slice1d(signal, 0, 1), tf.sub(tf.slice1d(signal, 1, signal.size - 1), tf.mul(tf.slice1d(signal, 0, signal.size - 1), coeff))]);
+		console.log('rfft done');
+		const concat = tf.concat(output);
+		console.log('concat done');
+		return tf.div(concat, nfft);
 	}
 	
 	function get_filterbanks(nfilt, nfft, samplerate)
@@ -70,7 +73,8 @@
 
 			console.log('before stft', tf.memory());
 
-			const pspec = stft_abs_sq(preemphasis(signal, 0.97), nfft, window_length, hop_length);
+			const pspec = tf.tidy(() => stft_abs_sq(signal, nfft, window_length, hop_length, 0.97));
+			console.log('pspec.shape', pspec.shape);
 			const mel_basis = get_filterbanks(nfilt, nfft, sample_rate).transpose();
 			const features = tf.log(tf.add(tf.matMul(pspec, mel_basis), 1e-20));
 
