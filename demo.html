@@ -7,7 +7,7 @@
 	<br />
 	<pre>transcript will appear here</pre>
 	<button onclick="transcribe()">Transcribe</button>
-	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.2/dist/tf.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.3/dist/tf.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/wavefile"></script>
 	<script>
 
@@ -68,6 +68,8 @@
 			const pad = Math.floor((pcm_float32.length + sample_rate) / sample_rate) * sample_rate - pcm_float32.length;
 			const signal = tf.concat([tf.tensor(pcm_float32), tf.zeros([pad])]).squeeze();
 
+			console.log('before stft', tf.memory());
+
 			const pspec = stft_abs_sq(preemphasis(signal, 0.97), nfft, window_length, hop_length);
 			const mel_basis = get_filterbanks(nfilt, nfft, sample_rate).transpose();
 			const features = tf.log(tf.add(tf.matMul(pspec, mel_basis), 1e-20));
@@ -76,8 +78,10 @@
 			const s = tf.sqrt(tf.mean(tf.squaredDifference(features, m)));
 			const batch = tf.div(tf.sub(features, m), s);
 
+			console.log('before predict', tf.memory());
 			const scores = (await model).predict(batch.expandDims()).squeeze(0);
 			const decoded_greedy = scores.argMax(axis = 1).arraySync();
+			console.log('after predict', tf.memory());
 
 			const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
 			const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
