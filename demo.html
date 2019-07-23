@@ -84,7 +84,7 @@
 			console.log('after predict', tf.memory());
 
 			const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
-			const postproc_text = decoded_text.filter((c, i) => i == 0 || c != decoded_text[i - 1]).join('').replace(/\|/g, '');
+			const postproc_text = decoded_text.filter((c, i) => (i == 0 || c != decoded_text[i - 1]) && c != '|').join('');
 			document.getElementsByTagName('pre')[0].innerText = postproc_text;
 		};
 		reader.readAsArrayBuffer(document.getElementsByTagName('input')[0].files[0]);

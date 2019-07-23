@@ -51,7 +51,7 @@ def load_model_ru(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁ�
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
 		nfft = win_length
-		return torch.stft(signal, nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
+		return torch.stft(signal, nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(nfft).type_as(signal), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1).sqrt()
 
 	return frontend, model, (lambda c: ABC[c]), ABC.index
 
@@ -115,7 +115,7 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC =
 		win_length = int(sample_rate * (window_size + 1e-8))
 		hop_length = int(sample_rate * (window_stride + 1e-8))
 		pspec = torch.stft(preemphasis(signal, preemph), nfft, win_length = win_length, hop_length = hop_length, window = torch.hann_window(win_length), pad_mode = 'constant', center = False).pow(2).sum(dim = -1) / nfft 
-		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate)
+		mel_basis = get_melscale_filterbanks(nfilt, nfft, sample_rate).type_as(pspec)
 		features = torch.log(torch.add(torch.matmul(mel_basis, pspec), 1e-20)) 
 		return (features - features.mean()) / features.std()
 
@@ -130,10 +130,11 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
 	parser.add_argument('--model', default = 'en', choices = ['en', 'ru'])
-	parser.add_argument('-i', '--input_path', default = '/mnt/c/Work/sample_ok/sample_ok/1560749203.651862.wav_1_402.79_408.523.wav')
+	parser.add_argument('-i', '--input_path', required = True)
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
 	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
+	parser.add_argument('--device', default = 'cpu')
 	args = parser.parse_args()
 
 	torch.set_grad_enabled(False)
@@ -143,7 +144,7 @@ if __name__ == '__main__':
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
 		assert sample_rate in [8000, 16000]
 		features = frontend(torch.from_numpy(signal).to(torch.float32), sample_rate)
-		scores = model(features.unsqueeze(0)).squeeze(0)
+		scores = model.to(args.device)(features.unsqueeze(0).to(args.device)).squeeze(0)
 		print(decode(scores, idx2chr))
 
 	if args.tfjs:
