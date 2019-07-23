@@ -1,4 +1,5 @@
 import argparse
+import Levenshtein
 
 class Alignment(object):
 	SCORE_UNIFORM = 1
@@ -278,6 +279,7 @@ class Hirschberg(Alignment):
 		return self.align_rec(self.seq_a, self.seq_b)
 
 def analyze(ref, hyp, phonetic_replace_groups = []):
+	ref0, hyp0 = ref, hyp
 	ref, hyp = Needleman().align(list(ref), list(hyp))
 	r, h = '', ''
 	i = 0
@@ -304,8 +306,6 @@ def analyze(ref, hyp, phonetic_replace_groups = []):
 			elif r[i] != '|' and r[i] != ' ' and k is None:
 				k = i
 
-	print(r)
-	print(h)
 	assert len(r) == len(h)
 	phonetic_group = lambda c: ([i for i, g in enumerate(phonetic_replace_groups) if c in g] + [c])[0]
 	a = dict(
@@ -329,7 +329,11 @@ def analyze(ref, hyp, phonetic_replace_groups = []):
 			delete = sum(1 if h_.count('|') > len(r_) // 2 else 0 for r_, h_ in words()),
 			replace = sum(1 if sum(1 if h_[i] not in ' |' and h_[i] != r_[i] else 0 for i in range(len(r_))) > len(r_) // 2 else 0 for r_, h_ in words()),
 			total = sum(1 if c == ' ' else 0 for c in ref) + 1
-		)
+		),
+		alignment = dict(ref = r, hyp = h),
+		input = dict(ref = ref0, hyp = hyp0),
+		cer = Levenshtein.distance(ref0.replace(' ', ''), hyp0.replace(' ', '')) / len(ref0.replace(' ', ''))
+
 	)
 	return a
 
@@ -342,8 +346,3 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	print(analyze(args.ref, args.hyp, phonetic_replace_groups = RU_PHONETIC_REPLACE_GROUPS))
-
-	import Levenshtein
-	edit_distance = Levenshtein.distance(args.ref.replace(' ', ''), args.hyp.replace(' ', ''))
-	ref_len = len(args.ref.replace(' ', ''))
-	print(f'Length: {ref_len} | Edit distance: {edit_distance} | CER: {edit_distance / ref_len:.02%}')
