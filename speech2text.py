@@ -72,29 +72,21 @@ def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29
 	model.load_state_dict(state_dict)
 
 	def frontend(signal, sample_freq, window_size=20e-3, window_stride=10e-3, dither = 1e-5, window_fn = np.hanning, num_features = 64):
-		import librosa
-		normalize_signal = lambda signal: signal / (np.max(np.abs(signal)) + 1e-5)
-		signal = normalize_signal(signal.numpy())
+		signal = signal / (signal.abs().max() + 1e-5)
 		audio_duration = len(signal) * 1.0 / sample_freq
 		n_window_size = int(sample_freq * window_size)
 		n_window_stride = int(sample_freq * window_stride)
 		num_fft = 2**math.ceil(math.log2(window_size*sample_freq))
 
-		signal += dither*np.random.randn(*signal.shape)
-		S = np.abs(librosa.core.stft(signal, n_fft=num_fft,
-                                 hop_length=int(window_stride * sample_freq),
-                                 win_length=int(window_size * sample_freq),
-                                 center=True, window=window_fn))**2.0
+		signal += dither * torch.randn_like(signal)
+		S = torch.stft(signal, num_fft, hop_length=int(window_stride * sample_freq), win_length=int(window_size * sample_freq), window = torch.hann_window(int(window_size * sample_freq)).type_as(signal), pad_mode = 'reflect', center = True).pow(2).sum(dim = -1)
+		#S = np.abs(librosa.core.stft(signal, n_fft=num_fft, hop_length=int(window_stride * sample_freq), win_length=int(window_size * sample_freq), center=True, window=window_fn))**2.0
+		import librosa;	mel_basis = torch.from_numpy(librosa.filters.mel(sample_freq, num_fft, n_mels=num_features, fmin=0, fmax=int(sample_freq/2))).float()
 
-		mel_basis = librosa.filters.mel(sample_freq, num_fft, n_mels=num_features,
-                                      fmin=0, fmax=int(sample_freq/2))
-
-		features = np.log(np.dot(mel_basis, S) + 1e-20).T
-		norm_axis = 0 
-		mean = np.mean(features, axis=norm_axis)
-		std_dev = np.std(features, axis=norm_axis)
-		features = (features - mean) / std_dev
-		return torch.from_numpy(features.T.astype(np.float32))
+		features = torch.log(torch.matmul(mel_basis, S) + 1e-20)
+		mean = features.mean(dim = 1, keepdim = True)
+		std_dev = features.std(dim = 1, keepdim = True)
+		return (features - mean) / std_dev
 
 	return frontend, model, (lambda c: ABC[c]), ABC.index
 
