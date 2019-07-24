@@ -12,22 +12,26 @@ The credit for the original [wav2letter++ model](https://arxiv.org/abs/1812.0762
 # Example
 ```shell
 # download the pretrained model weights for English and Russian
-wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.h5 # English
+wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/w2l_plus_large_mp.h5 # English, Wav2Letter
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/checkpoint_0010_epoch_01_iter_62500.model.h5 # Russian
+wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/jasper10x5_LibriSpeech_nvgrad_masks.h5.part_aa # English, Jasper, part1
+wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/jasper10x5_LibriSpeech_nvgrad_masks.h5.part_ab # English, Jasper, part2
+cat jasper10x5_LibriSpeech_nvgrad_masks.h5.part_aa jasper10x5_LibriSpeech_nvgrad_masks.h5.part_ab > jasper10x5_LibriSpeech_nvgrad_masks.h5
 
 # download and transcribe a wav file (16 kHz)
 # should print: my heart doth plead that thou in him doth lie a closet never pierced with crystal eyes but the defendant doth that plea deny and says in him thy fair appearance lies
 wget https://github.com/vadimkantorov/inferspeech/releases/download/pretrained/121-123852-0004.wav
-python3 speech2text.py --model en --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav
+python3 speech2text.py --model en_w2l --weights w2l_plus_large_mp.h5 -i 121-123852-0004.wav # use Wav2Letter model
+python3 speech2text.py --model en_w2l --weights jasper10x5_LibriSpeech_nvgrad_masks.h5 -i 121-123852-0004.wav # use Jasper model
 
 # transcribe some Russian wav file
-python3 speech2text.py --model ru --weights checkpoint_0010_epoch_01_iter_62500.model.h5 -i some_test.wav
+python3 speech2text.py --model ru_w2l --weights checkpoint_0010_epoch_01_iter_62500.model.h5 -i some_test.wav
 
 # save the model to ONNX format for inspection with https://lutzroeder.github.io/netron/
-python3 speech2text.py --model en --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
+python3 speech2text.py --model en_w2l --weights w2l_plus_large_mp.h5 --onnx w2l_plus_large_mp.onnx
 
 # save the model to TensorFlow.js format
-python3 speech2text.py --model en --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.tfjs
+python3 speech2text.py --model en_w2l --weights w2l_plus_large_mp.h5 --tfjs w2l_plus_large_mp.tfjs
 ```
 
 # Browser demo with TensorFlow.js (work in progress)

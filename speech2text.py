@@ -8,7 +8,97 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def load_model_ru(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ2* '):
+def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'|"):
+	class conv_block(nn.Module):
+		def __init__(self, kernel_size, num_channels, stride = 1, dilation = 1, padding = 0, repeat = 1, num_channels_residual = []):
+			super(conv_block, self).__init__()
+			self.conv = nn.ModuleList([nn.Conv1d(num_channels[0] if i == 0 else num_channels[1], num_channels[1], kernel_size = kernel_size, stride = stride, dilation = dilation, padding = padding) for i in range(repeat)])
+			self.conv_residual = nn.ModuleList([nn.Conv1d(in_channels, num_channels[1], kernel_size = 1) for in_channels in num_channels_residual])
+
+	class JasperNetDenseResidual(nn.Module):
+		def __init__(self, num_classes):
+			super(JasperNetDenseResidual, self).__init__()
+			self.blocks = nn.ModuleList([
+				conv_block(kernel_size = 11, num_channels = (64, 256), padding = 5, stride = 2),
+
+				conv_block(kernel_size = 11, num_channels = (256, 256), padding = 5, repeat = 5, num_channels_residual = [256]),
+				conv_block(kernel_size = 11, num_channels = (256, 256), padding = 5, repeat = 5, num_channels_residual = [256, 256]),
+
+				conv_block(kernel_size = 13, num_channels = (256, 384), padding = 6, repeat = 5, num_channels_residual = [256, 256, 256]),
+				conv_block(kernel_size = 13, num_channels = (384, 384), padding = 6, repeat = 5, num_channels_residual = [256, 256, 256, 384]),
+
+				conv_block(kernel_size = 17, num_channels = (384, 512), padding = 8, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384]),
+				conv_block(kernel_size = 17, num_channels = (512, 512), padding = 8, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512]),
+
+				conv_block(kernel_size = 21, num_channels = (512, 640), padding = 10, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512]),
+				conv_block(kernel_size = 21, num_channels = (640, 640), padding = 10, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640]),
+
+				conv_block(kernel_size = 25, num_channels = (640, 768), padding = 12, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640, 640]),
+				conv_block(kernel_size = 25, num_channels = (768, 768), padding = 12, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640, 640, 768]),
+
+				conv_block(kernel_size = 29, num_channels = (768, 896), padding = 28, dilation = 2),
+				conv_block(kernel_size = 1, num_channels = (896, 1024)),
+
+				nn.Conv1d(1024, num_classes, 1)
+			])
+
+		def forward(self, x):
+			residual = []
+			for i, block in enumerate(self.blocks[:-1]):
+				for j in range(len(block.conv) - 1):
+					x = F.relu(block.conv[j](x), inplace = True)
+				x = block.conv[-1](x)
+				for r, conv in zip(residual if i < len(self.blocks) - 3 else [], block.conv_residual):
+					x = x + conv(r)
+				x = F.relu(x, inplace = True)
+				residual.append(x)
+			return self.blocks[-1](x)
+
+	model = JasperNetDenseResidual(num_classes = len(ABC))
+	h = h5py.File(model_weights)
+	to_tensor = lambda path: torch.from_numpy(np.asarray(h[path])).to(torch.float32)
+	state_dict = {}
+	for param_name, param in model.state_dict().items():
+		ij = [int(c) for c in param_name.split('.') if c.isdigit()]
+		weight, bias = None, None
+		if len(ij) > 1:
+			weight, moving_mean, moving_variance, gamma, beta = [to_tensor(f'ForwardPass/w2l_encoder/conv{1 + ij[0]}{1 + ij[1]}/{suffix}') for suffix in ['kernel', 'bn/moving_mean', 'bn/moving_variance', 'bn/gamma', 'bn/beta']] if 'residual' not in param_name else [to_tensor(f'ForwardPass/w2l_encoder/conv{1 + ij[0]}5/{suffix}') for suffix in [f'res_{ij[1]}/kernel', f'res_bn_{ij[1]}/moving_mean', f'res_bn_{ij[1]}/moving_variance', f'res_bn_{ij[1]}/gamma', f'res_bn_{ij[1]}/beta']]
+			weight, bias = fuse_conv_bn(weight.permute(2, 1, 0), moving_mean, moving_variance, gamma, beta, batch_norm_eps = batch_norm_eps)
+		else:
+			weight, bias = [to_tensor(f'ForwardPass/fully_connected_ctc_decoder/fully_connected/{suffix}') for suffix in ['kernel', 'bias']]
+			weight = weight.t().unsqueeze(-1)
+
+		state_dict[param_name] = (weight if 'weight' in param_name else bias).to(param.dtype)
+	model.load_state_dict(state_dict)
+
+	def frontend(signal, sample_freq, window_size=20e-3, window_stride=10e-3, dither = 1e-5, window_fn = np.hanning, num_features = 64):
+		import librosa
+		normalize_signal = lambda signal: signal / (np.max(np.abs(signal)) + 1e-5)
+		signal = normalize_signal(signal.numpy())
+		audio_duration = len(signal) * 1.0 / sample_freq
+		n_window_size = int(sample_freq * window_size)
+		n_window_stride = int(sample_freq * window_stride)
+		num_fft = 2**math.ceil(math.log2(window_size*sample_freq))
+
+		signal += dither*np.random.randn(*signal.shape)
+		S = np.abs(librosa.core.stft(signal, n_fft=num_fft,
+                                 hop_length=int(window_stride * sample_freq),
+                                 win_length=int(window_size * sample_freq),
+                                 center=True, window=window_fn))**2.0
+
+		mel_basis = librosa.filters.mel(sample_freq, num_fft, n_mels=num_features,
+                                      fmin=0, fmax=int(sample_freq/2))
+
+		features = np.log(np.dot(mel_basis, S) + 1e-20).T
+		norm_axis = 0 
+		mean = np.mean(features, axis=norm_axis)
+		std_dev = np.std(features, axis=norm_axis)
+		features = (features - mean) / std_dev
+		return torch.from_numpy(features.T.astype(np.float32))
+
+	return frontend, model, (lambda c: ABC[c]), ABC.index
+
+def load_model_ru_w2l(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ2* '):
 	def conv_block(kernel_size, num_channels, stride = 1, padding = 0):
 		return nn.Sequential(
 			nn.Conv1d(num_channels[0], num_channels[1], kernel_size=kernel_size, stride=stride, padding=padding),
@@ -34,11 +124,8 @@ def load_model_ru(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁ�
 	for param_name, param in model.state_dict().items():
 		ij = [int(c) for c in param_name if c.isdigit()]
 		if len(ij) > 1:
-			weight = to_tensor(f'rnns.{ij[0] * 3}.weight')
-			moving_mean, moving_variance, gamma, beta = [to_tensor(f'rnns.{ij[0] * 3 + 1}.{suffix}') for suffix in ['running_mean', 'running_var', 'weight', 'bias']]
-			factor = gamma * (moving_variance + batch_norm_eps).rsqrt()
-			weight *= factor.view(-1, *([1] * (weight.dim() - 1)))
-			bias = beta - moving_mean * factor
+			weight, moving_mean, moving_variance, gamma, beta = [to_tensor(f'rnns.{ij[0] * 3}.weight')] + [to_tensor(f'rnns.{ij[0] * 3 + 1}.{suffix}') for suffix in ['running_mean', 'running_var', 'weight', 'bias']]
+			weight, bias = fuse_conv_bn(weight, moving_mean, moving_variance, gamma, beta, batch_norm_eps = batch_norm_eps)
 		else:
 			weight, bias = [to_tensor(f'fc.0.{suffix}') for suffix in ['weight', 'bias']]
 		state_dict[param_name] = (weight if 'weight' in param_name else bias).to(param.dtype)
@@ -55,7 +142,7 @@ def load_model_ru(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁ�
 
 	return frontend, model, (lambda c: ABC[c]), ABC.index
 
-def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'|"):
+def load_model_en_w2l(model_weights, batch_norm_eps = 0.001, ABC = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'|"):
 	def conv_block(kernel_size, num_channels, stride = 1, dilation = 1, repeat = 1, padding = 0):
 		modules = []
 		for i in range(repeat):
@@ -81,14 +168,12 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC =
 	for param_name, param in model.state_dict().items():
 		ij = [int(c) for c in param_name if c.isdigit()]
 		if len(ij) > 1:
-			kernel, moving_mean, moving_variance, beta, gamma = [to_tensor(f'ForwardPass/w2l_encoder/conv{1 + ij[0]}{1 + ij[1] // 2}/{suffix}') for suffix in ['kernel', '/bn/moving_mean', '/bn/moving_variance', '/bn/beta', '/bn/gamma']]
-			factor = gamma * (moving_variance + batch_norm_eps).rsqrt()
-			kernel *= factor
-			bias = beta - moving_mean * factor
+			weight, moving_mean, moving_variance, gamma, beta = [to_tensor(f'ForwardPass/w2l_encoder/conv{1 + ij[0]}{1 + ij[1] // 2}/{suffix}') for suffix in ['kernel', 'bn/moving_mean', 'bn/moving_variance', 'bn/gamma', 'bn/beta']]
+			weight, bias = fuse_conv_bn(weight.permute(2, 1, 0), moving_mean, moving_variance, gamma, beta, batch_norm_eps = batch_norm_eps)
 		else:
-			kernel, bias = [to_tensor(f'ForwardPass/fully_connected_ctc_decoder/fully_connected/{suffix}') for suffix in ['kernel', 'bias']]	
-			kernel.unsqueeze_(0)
-		state_dict[param_name] = (kernel.permute(2, 1, 0) if 'weight' in param_name else bias).to(param.dtype)
+			weight, bias = [to_tensor(f'ForwardPass/fully_connected_ctc_decoder/fully_connected/{suffix}') for suffix in ['kernel', 'bias']]	
+			weight = weight.t().unsqueeze(-1)
+		state_dict[param_name] = (weigth if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
 
 	def frontend(signal, sample_rate, nfft = 512, nfilt = 64, preemph = 0.97, window_size = 0.020, window_stride = 0.010):
@@ -121,7 +206,13 @@ def load_model_en(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC =
 
 	return frontend, model, (lambda c: ABC[c]), ABC.index
 
-def decode(scores, idx2chr):
+def fuse_conv_bn(weight, moving_mean, moving_variance, gamma, beta, batch_norm_eps):
+	factor = gamma * (moving_variance + batch_norm_eps).rsqrt()
+	weight *= factor.view(-1, *([1] * (weight.dim() - 1)))
+	bias = beta - moving_mean * factor
+	return weight, bias
+
+def decode_greedy(scores, idx2chr):
 	decoded_greedy = scores.argmax(dim = 0).tolist()
 	decoded_text = ''.join(map(idx2chr, decoded_greedy))
 	return ''.join(c for i, c in enumerate(decoded_text) if (i == 0 or c != decoded_text[i - 1]) and c != '|')
@@ -129,8 +220,8 @@ def decode(scores, idx2chr):
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--weights', default = 'w2l_plus_large_mp.h5')
-	parser.add_argument('--model', default = 'en', choices = ['en', 'ru'])
-	parser.add_argument('-i', '--input_path', required = True)
+	parser.add_argument('--model', default = 'en_w2l', choices = ['en_w2l', 'ru_w2l', 'en_jasper'])
+	parser.add_argument('-i', '--input_path')
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
 	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
@@ -138,14 +229,14 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 
 	torch.set_grad_enabled(False)
-	frontend, model, idx2chr, chr2idx = dict(en = load_model_en, ru = load_model_ru)[args.model](args.weights)
+	frontend, model, idx2chr, chr2idx = dict(en_w2l = load_model_en_w2l, en_jasper = load_model_en_jasper, ru_w2l = load_model_ru_w2l)[args.model](args.weights)
 
 	if args.input_path:
 		sample_rate, signal = scipy.io.wavfile.read(args.input_path)
 		assert sample_rate in [8000, 16000]
 		features = frontend(torch.from_numpy(signal).to(torch.float32), sample_rate)
 		scores = model.to(args.device)(features.unsqueeze(0).to(args.device)).squeeze(0)
-		print(decode(scores, idx2chr))
+		print(decode_greedy(scores, idx2chr))
 
 	if args.tfjs:
 		# monkey-patching a module to have tfjs converter load with tf v1
