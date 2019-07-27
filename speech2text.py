@@ -80,9 +80,9 @@ def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29
 
 				mels = (frequencies - f_min) / f_sp
 
-				min_log_hz = 1000.0                         # beginning of log region (Hz)
+				min_log_hz = 1000.0						 # beginning of log region (Hz)
 				min_log_mel = (min_log_hz - f_min) / f_sp   # same (Mels)
-				logstep = np.log(6.4) / 27.0                # step size for log region
+				logstep = np.log(6.4) / 27.0				# step size for log region
 
 				if frequencies.ndim:
 					log_t = (frequencies >= min_log_hz)
@@ -99,9 +99,9 @@ def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29
 				f_sp = 200.0 / 3
 				freqs = f_min + f_sp * mels
 
-				min_log_hz = 1000.0                         # beginning of log region (Hz)
+				min_log_hz = 1000.0						 # beginning of log region (Hz)
 				min_log_mel = (min_log_hz - f_min) / f_sp   # same (Mels)
-				logstep = np.log(6.4) / 27.0                # step size for log region
+				logstep = np.log(6.4) / 27.0				# step size for log region
 
 				if mels.ndim:
 					log_t = (mels >= min_log_mel)
@@ -221,7 +221,7 @@ def load_model_en_w2l(model_weights, batch_norm_eps = 0.001, ABC = " ABCDEFGHIJK
 		else:
 			weight, bias = [to_tensor(f'ForwardPass/fully_connected_ctc_decoder/fully_connected/{suffix}') for suffix in ['kernel', 'bias']]	
 			weight = weight.t().unsqueeze(-1)
-		state_dict[param_name] = (weigth if 'weight' in param_name else bias).to(param.dtype)
+		state_dict[param_name] = (weight if 'weight' in param_name else bias).to(param.dtype)
 	model.load_state_dict(state_dict)
 
 	def frontend(signal, sample_rate, nfft = 512, nfilt = 64, preemph = 0.97, window_size = 0.020, window_stride = 0.010):
@@ -272,6 +272,7 @@ if __name__ == '__main__':
 	parser.add_argument('-i', '--input_path')
 	parser.add_argument('--onnx')
 	parser.add_argument('--tfjs')
+	parser.add_argument('--pt')
 	parser.add_argument('--tfjs_quantization_dtype', default = None, choices = ['uint8', 'uint16', None])
 	parser.add_argument('--device', default = 'cpu')
 	args = parser.parse_args()
@@ -301,3 +302,6 @@ if __name__ == '__main__':
 		# https://github.com/onnx/onnx/issues/740
 		batch = torch.zeros(1, 1000, model[0][0].in_channels, dtype = torch.float32)
 		torch.onnx.export(model, batch, args.onnx, input_names = ['input'], output_names = ['output'])
+
+	if args.pt:
+		torch.save(model, args.pt)

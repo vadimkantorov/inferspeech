@@ -7,7 +7,7 @@
 	<br />
 	<pre>transcript will appear here</pre>
 	<button onclick="transcribe()">Transcribe</button>
-	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.3/dist/tf.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.5/dist/tf.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/wavefile"></script>
 	<script>
 
@@ -88,6 +88,7 @@
 			console.log('after predict', tf.memory());
 
 			const decoded_text = decoded_greedy.map(c => ({0 : ' ', 27 : "'", 28 : '|'})[c] || String.fromCharCode(c - 1 + 'a'.charCodeAt()));
+			console.log('decoded', decoded_text);
 			const postproc_text = decoded_text.filter((c, i) => (i == 0 || c != decoded_text[i - 1]) && c != '|').join('');
 			document.getElementsByTagName('pre')[0].innerText = postproc_text;
 		};
