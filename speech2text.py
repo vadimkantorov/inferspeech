@@ -9,52 +9,52 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29, ABC = " ABCDEFGHIJKLMNOPQRSTUVWXYZ'|"):
-	class conv_block(nn.Module):
-		def __init__(self, kernel_size, num_channels, stride = 1, dilation = 1, padding = 0, repeat = 1, num_channels_residual = []):
-			super(conv_block, self).__init__()
-			self.conv = nn.ModuleList([nn.Conv1d(num_channels[0] if i == 0 else num_channels[1], num_channels[1], kernel_size = kernel_size, stride = stride, dilation = dilation, padding = padding) for i in range(repeat)])
-			self.conv_residual = nn.ModuleList([nn.Conv1d(in_channels, num_channels[1], kernel_size = 1) for in_channels in num_channels_residual])
-
-	class JasperNetDenseResidual(nn.Module):
+	class JasperNet(nn.ModuleList):
 		def __init__(self, num_classes):
-			super(JasperNetDenseResidual, self).__init__()
-			self.blocks = nn.ModuleList([
-				conv_block(kernel_size = 11, num_channels = (64, 256), padding = 5, stride = 2),
+			def conv_bn_residual(kernel_size, num_channels, stride = 1, dilation = 1, padding = 0, repeat = 1, num_channels_residual = []):
+				return nn.ModuleDict(dict(
+					conv = nn.ModuleList([nn.Conv1d(num_channels[0] if i == 0 else num_channels[1], num_channels[1], kernel_size = kernel_size, stride = stride, dilation = dilation, padding = padding) for i in range(repeat)]),
+					conv_residual = nn.ModuleList([nn.Conv1d(in_channels, num_channels[1], kernel_size = 1) for in_channels in num_channels_residual])
+				))
 
-				conv_block(kernel_size = 11, num_channels = (256, 256), padding = 5, repeat = 5, num_channels_residual = [256]),
-				conv_block(kernel_size = 11, num_channels = (256, 256), padding = 5, repeat = 5, num_channels_residual = [256, 256]),
+			blocks = nn.ModuleList([
+				conv_bn_residual(kernel_size = 11, num_channels = (64, 256), padding = 5, stride = 2),
 
-				conv_block(kernel_size = 13, num_channels = (256, 384), padding = 6, repeat = 5, num_channels_residual = [256, 256, 256]),
-				conv_block(kernel_size = 13, num_channels = (384, 384), padding = 6, repeat = 5, num_channels_residual = [256, 256, 256, 384]),
+				conv_bn_residual(kernel_size = 11, num_channels = (256, 256), padding = 5, repeat = 5, num_channels_residual = [256]),
+				conv_bn_residual(kernel_size = 11, num_channels = (256, 256), padding = 5, repeat = 5, num_channels_residual = [256, 256]),
 
-				conv_block(kernel_size = 17, num_channels = (384, 512), padding = 8, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384]),
-				conv_block(kernel_size = 17, num_channels = (512, 512), padding = 8, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512]),
+				conv_bn_residual(kernel_size = 13, num_channels = (256, 384), padding = 6, repeat = 5, num_channels_residual = [256, 256, 256]),
+				conv_bn_residual(kernel_size = 13, num_channels = (384, 384), padding = 6, repeat = 5, num_channels_residual = [256, 256, 256, 384]),
 
-				conv_block(kernel_size = 21, num_channels = (512, 640), padding = 10, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512]),
-				conv_block(kernel_size = 21, num_channels = (640, 640), padding = 10, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640]),
+				conv_bn_residual(kernel_size = 17, num_channels = (384, 512), padding = 8, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384]),
+				conv_bn_residual(kernel_size = 17, num_channels = (512, 512), padding = 8, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512]),
 
-				conv_block(kernel_size = 25, num_channels = (640, 768), padding = 12, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640, 640]),
-				conv_block(kernel_size = 25, num_channels = (768, 768), padding = 12, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640, 640, 768]),
+				conv_bn_residual(kernel_size = 21, num_channels = (512, 640), padding = 10, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512]),
+				conv_bn_residual(kernel_size = 21, num_channels = (640, 640), padding = 10, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640]),
 
-				conv_block(kernel_size = 29, num_channels = (768, 896), padding = 28, dilation = 2),
-				conv_block(kernel_size = 1, num_channels = (896, 1024)),
+				conv_bn_residual(kernel_size = 25, num_channels = (640, 768), padding = 12, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640, 640]),
+				conv_bn_residual(kernel_size = 25, num_channels = (768, 768), padding = 12, repeat = 5, num_channels_residual = [256, 256, 256, 384, 384, 512, 512, 640, 640, 768]),
+
+				conv_bn_residual(kernel_size = 29, num_channels = (768, 896), padding = 28, dilation = 2),
+				conv_bn_residual(kernel_size = 1, num_channels = (896, 1024)),
 
 				nn.Conv1d(1024, num_classes, 1)
 			])
+			super(JasperNet, self).__init__(blocks)
 
 		def forward(self, x):
 			residual = []
-			for i, block in enumerate(self.blocks[:-1]):
-				for j in range(len(block.conv) - 1):
-					x = F.relu(block.conv[j](x), inplace = True)
+			for i, block in enumerate(list(self)[:-1]):
+				for conv in block.conv[:-1]:
+					x = F.relu(conv(x), inplace = True)
 				x = block.conv[-1](x)
-				for r, conv in zip(residual if i < len(self.blocks) - 3 else [], block.conv_residual):
+				for conv, r in zip(block.conv_residual, residual if i < len(self) - 3 else []):
 					x = x + conv(r)
 				x = F.relu(x, inplace = True)
 				residual.append(x)
-			return self.blocks[-1](x)
+			return self[-1](x)
 
-	model = JasperNetDenseResidual(num_classes = len(ABC))
+	model = JasperNet(num_classes = len(ABC))
 	h = h5py.File(model_weights)
 	to_tensor = lambda path: torch.from_numpy(np.asarray(h[path])).to(torch.float32)
 	state_dict = {}
@@ -77,12 +77,10 @@ def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29
 				frequencies = np.asanyarray(frequencies)
 				f_min = 0.0
 				f_sp = 200.0 / 3
-
 				mels = (frequencies - f_min) / f_sp
-
-				min_log_hz = 1000.0						 # beginning of log region (Hz)
-				min_log_mel = (min_log_hz - f_min) / f_sp   # same (Mels)
-				logstep = np.log(6.4) / 27.0				# step size for log region
+				min_log_hz = 1000.0
+				min_log_mel = (min_log_hz - f_min) / f_sp
+				logstep = np.log(6.4) / 27.0
 
 				if frequencies.ndim:
 					log_t = (frequencies >= min_log_hz)
@@ -94,14 +92,12 @@ def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29
 
 			def mel_to_hz(mels):
 				mels = np.asanyarray(mels)
-
 				f_min = 0.0
 				f_sp = 200.0 / 3
 				freqs = f_min + f_sp * mels
-
-				min_log_hz = 1000.0						 # beginning of log region (Hz)
-				min_log_mel = (min_log_hz - f_min) / f_sp   # same (Mels)
-				logstep = np.log(6.4) / 27.0				# step size for log region
+				min_log_hz = 1000.0
+				min_log_mel = (min_log_hz - f_min) / f_sp
+				logstep = np.log(6.4) / 27.0
 
 				if mels.ndim:
 					log_t = (mels >= min_log_mel)
@@ -147,22 +143,22 @@ def load_model_en_jasper(model_weights, batch_norm_eps = 0.001, num_classes = 29
 	return frontend, model, (lambda c: ABC[c]), ABC.index
 
 def load_model_ru_w2l(model_weights, batch_norm_eps = 1e-05, ABC = '|АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ2* '):
-	def conv_block(kernel_size, num_channels, stride = 1, padding = 0):
+	def conv_bn(kernel_size, num_channels, stride = 1, padding = 0):
 		return nn.Sequential(
 			nn.Conv1d(num_channels[0], num_channels[1], kernel_size=kernel_size, stride=stride, padding=padding),
 			nn.ReLU(inplace = True)
 		)
 
 	model = nn.Sequential(
-		conv_block(kernel_size = 13, num_channels = (161, 768), stride = 2, padding = 6),
-		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
-		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
-		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
-		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
-		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
-		conv_block(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
-		conv_block(kernel_size = 31, num_channels = (768, 2048), stride = 1, padding = 15),
-		conv_block(kernel_size = 1,  num_channels = (2048, 2048), stride = 1, padding = 0),
+		conv_bn(kernel_size = 13, num_channels = (161, 768), stride = 2, padding = 6),
+		conv_bn(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
+		conv_bn(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
+		conv_bn(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
+		conv_bn(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
+		conv_bn(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
+		conv_bn(kernel_size = 13, num_channels = (768, 768), stride = 1, padding = 6),
+		conv_bn(kernel_size = 31, num_channels = (768, 2048), stride = 1, padding = 15),
+		conv_bn(kernel_size = 1,  num_channels = (2048, 2048), stride = 1, padding = 0),
 		nn.Conv1d(2048, len(ABC), kernel_size=1, stride=1)
 	)
 
