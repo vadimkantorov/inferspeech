@@ -1,4 +1,5 @@
 import os
+import io
 import math
 import json
 import base64
@@ -13,9 +14,9 @@ import matplotlib.pyplot as plt
 
 import speech2text
 
-def vis_(mel, scores, saliency, mel_dream):
+def vis_(batch_first, batch_last, scores_first, scores_last, K = 40):
 	postproc = lambda decoded: ''.join('.' if c == '|' else c if i == 0 or c == ' ' or c != idx2chr(decoded[i - 1]) else '_' for i, c in enumerate(''.join(map(idx2chr, decoded))))
-	postproc_greedy = postproc(scores.argmax(dim = 0).tolist())
+	normalize_min_max = lambda scores, dim = 0: (scores - scores.min(dim = dim).values) / (scores.max(dim = dim).values - scores.min(dim = dim).values)
 
 	def merge_epsilon(scores):
 		decoded = list(map(idx2chr, scores.argmax(dim = 0).tolist()))
@@ -26,52 +27,76 @@ def vis_(mel, scores, saliency, mel_dream):
 				scores[chr2idx(noneps), i] += scores[chr2idx('|'), i]
 				if c != '|':
 					noneps = c
-		return scores[:-1]
+		assert 0 == chr2idx('|')
+		return scores[1:]
 
-	entropy = lambda x, dim, eps = 1e-15: -(x * (x + eps).log()).sum(dim = dim)
+	entropy = lambda x, dim, eps = 1e-15: -(x / x.sum(dim = dim, keepdim = True).add(eps) * (x / x.sum(dim = dim, keepdim = True).add(eps) + eps).log()).sum(dim = dim)
 	
 	plt.figure(figsize=(6, 3))
+	def colorbar(): cb = plt.colorbar(); cb.outline.set_visible(False); cb.ax.tick_params(labelsize = 4, length = 0.3)
+	title = lambda s: plt.title(s, fontsize = 5)
+	ticks = lambda labelsize = 4, length = 1: plt.gca().tick_params(axis='both', which='both', labelsize=labelsize, length=length) or [ax.set_linewidth(0) for ax in plt.gca().spines.values()]
 	plt.subplots_adjust(top = 0.99, bottom=0.01, hspace=0.8, wspace=0.4)
 
-	plt.subplot(611)
-	plt.imshow(mel, origin = 'lower', aspect = 'auto')
-	plt.title('Mel log-spectrogram')
+	num_subplots = 8
+	plt.subplot(num_subplots, 1, 1)
+	plt.imshow(batch_first[:K], origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('Spectrogram, original')
 
-	plt.subplot(612)
-	plt.imshow(mel_dream, origin = 'lower', aspect = 'auto')
-	plt.title('Dream')
+	plt.subplot(num_subplots, 1, 2)
+	plt.imshow(batch_last[:K], origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('Spectrogram, dream')
 
-	plt.subplot(613)
-	plt.imshow((mel - mel_dream).abs(), origin = 'lower', aspect = 'auto')
-	plt.title('Diff')
+	plt.subplot(num_subplots, 1, 3)
+	plt.imshow((batch_last - batch_first)[:K], origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('Diff')
 
-	#plt.subplot(612)
-	#plt.imshow((saliency - saliency.min(dim = 0).values) / (saliency.max(dim = 0).values - saliency.min(dim = 0).values), origin = 'lower', aspect = 'auto')
-	#plt.title('Gradient')
+	scores_first_01 = normalize_min_max(scores_first)
+	scores_last_01 = normalize_min_max(scores_last)
+	scores_first_softmax = F.softmax(scores_first, dim = 0)
+	scores_last_softmax = F.softmax(scores_last, dim = 0)
 
-	plt.subplot(614)
-	plt.imshow(scores, origin = 'lower', aspect = 'auto')
-	plt.title('Scores')
+	plt.subplot(num_subplots, 1, 4)
+	plt.imshow(scores_first_01, origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('Scores, original')
 
-	scores = merge_epsilon(scores)
+	plt.subplot(num_subplots, 1, 5)
+	plt.imshow(scores_last_01, origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('Scores, dream')
 
-	plt.subplot(615)
-	plt.plot(entropy(F.softmax(scores, dim = 0), dim = 0).numpy(), linewidth = 0.3)
-	plt.ylim([0, 3])
-	plt.xticks(torch.arange(scores.shape[-1]), postproc_greedy)
-	plt.gca().tick_params(axis='both', which='both', labelsize=2, length = 0)
-	plt.title('Entropy')
+	plt.subplot(num_subplots, 1, 6)
+	plt.imshow(scores_last_01 - scores_first_01, origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('Diff')
 
-	plt.subplot(616)
-	best, next = scores.topk(2, dim = 0).values
-	plt.plot(best.numpy(), linewidth = 0.3, color = 'r')
-	plt.plot(next.numpy(), linewidth = 0.3, color = 'b')
-	plt.title('Margin')
+	plt.subplot(num_subplots, 1, 7)
+	plt.plot(entropy(scores_first_softmax, dim = 0).numpy(), linewidth = 0.3, color='b')
+	plt.plot(entropy(scores_last_softmax, dim = 0).numpy(), linewidth = 0.3, color='r')
+	plt.hlines(1.0, 0, scores_first_01.shape[-1]); colorbar()
+	plt.xlim([0, scores_first_01.shape[-1]])
+	plt.ylim([0, 2.5])
+	plt.xticks(torch.arange(scores_first_01.shape[-1]), postproc(scores_last.argmax(dim = 0).tolist()))
+	ticks(labelsize=2, length = 0)
+	ax = plt.gca().twiny()
+	ax.tick_params(axis='x')
+	plt.xticks(torch.arange(scores_first_01.shape[-1]), postproc(scores_first.argmax(dim = 0).tolist()))
+	ticks(labelsize=2, length = 0)
+	title('Entropy')
 
-	plt.savefig('vis.jpg', bbox_inches = 'tight', dpi = 300)
+	plt.subplot(num_subplots, 1, 8)
+	plt.plot(F.kl_div(scores_first_softmax, scores_last_softmax, reduction = 'none').sum(dim = 0), linewidth = 0.3, color = 'b'); ticks(); colorbar()
+	plt.ylim([-2, 0])
+	title('KL')	
+	#plt.subplot(616)
+	#best, next = scores.topk(2, dim = 0).values
+	#plt.plot(best.numpy(), linewidth = 0.3, color = 'r')
+	#plt.plot(next.numpy(), linewidth = 0.3, color = 'b'); ticks(); colorbar()
+	#plt.xlim([0, scores.shape[-1]])
+	#title('Margin')
+
+	buf = io.BytesIO()
+	plt.savefig(buf, format = 'jpg', bbox_inches = 'tight', dpi = 300)
 	plt.close()
-	with open('vis.jpg', 'rb') as f:
-		return f.read()
+	return buf.getvalue()
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
@@ -80,7 +105,7 @@ if __name__ == '__main__':
 	parser.add_argument('-i', '--input-path', default = 'transcripts.json')
 	parser.add_argument('--device', default = 'cuda')
 	parser.add_argument('--num-iter', default = 100, type = int)
-	parser.add_argument('--lr', default = 1e5, type = float)
+	parser.add_argument('--lr', default = 1e6, type = float)
 	parser.add_argument('--max-norm', default = 100, type = float)
 	args = parser.parse_args()
 	
@@ -94,16 +119,19 @@ if __name__ == '__main__':
 
 	for i, (reference, transcript, filename, cer) in enumerate(list(map(j.get, ['reference', 'transcript', 'filename', 'cer'])) for j in ref_tra):
 		sample_rate, signal = scipy.io.wavfile.read(filename)
+		#if i > 1: continue
 
 		signal = torch.from_numpy(signal).to(torch.float32).to(args.device).requires_grad_()
 		labels = torch.IntTensor(list(map(chr2idx, reference))).to(args.device)
 
-		batch_first, batch_first_grad, batch_last, scores_first, hyp_first, scores_last = None, None, None, None, None, None
+		batch_first, batch_first_grad, batch_last, scores_first, hyp_first, hyp_last, scores_last = None, None, None, None, None, None, None
 		for k in range(args.num_iter):
 			batch = frontend(signal, sample_rate).unsqueeze(0).requires_grad_(); batch.retain_grad()
 			scores = model(batch)
+
 			hyp = speech2text.decode_greedy(scores.squeeze(0), idx2chr)
 			loss = F.ctc_loss(F.log_softmax(scores, dim = 1).permute(2, 0, 1), labels.unsqueeze(0), torch.IntTensor([scores.shape[-1]]).to(args.device), torch.IntTensor([len(labels)]).to(args.device), blank = chr2idx('|'))
+			print(i, 'Loss:', float(loss))
 			if not hyp or (torch.isnan(loss) | torch.isinf(loss)).any():
 				continue
 			model.zero_grad()
@@ -118,8 +146,8 @@ if __name__ == '__main__':
 				hyp_first = hyp
 			scores_last = scores.clone()
 			batch_last = batch.clone()
+			hyp_last = hyp
 
-			print(i, 'Loss:', float(loss))
 			print(i, '| #', k, 'REF: ', reference)
 			print(i, '| #', k, 'HYP: ', hyp)
 			print()
@@ -129,14 +157,15 @@ if __name__ == '__main__':
 		encoded = base64.b64encode(open(filename, 'rb').read()).decode('utf-8').replace('\n', '')
 		vis.write(f'<div><hr /><h4>{filename} | {cer}</h4>')
 		vis.write(f'<h6>original</h6><div><audio controls src="data:audio/wav;base64,{encoded}"></audio></div>')
-		scipy.io.wavfile.write('dream.wav', sample_rate, signal.detach().cpu().to(torch.int16).numpy())
-		encoded = base64.b64encode(open('dream.wav', 'rb').read()).decode('utf-8').replace('\n', '')
+		buf = io.BytesIO()
+		scipy.io.wavfile.write(buf, sample_rate, signal.detach().cpu().to(torch.int16).numpy())
+		encoded = base64.b64encode(buf.getvalue()).decode('utf-8').replace('\n', '')
 		vis.write(f'<h6>dream</h6><div><audio controls src="data:audio/wav;base64,{encoded}"></audio></div>')
 		vis.write(f'<h6>REF: {reference}</h6>')
 		vis.write(f'<h6>HYP: {hyp_first}</h6>')
-		vis.write(f'<h6>DREAM: {hyp}</h6>')
+		vis.write(f'<h6>DREAM: {hyp_last}</h6>')
 
-		jpeg_bytes = vis_(batch_first[0].detach().cpu(), scores_last[0].detach().cpu(), batch_last[0].detach().cpu())
+		jpeg_bytes = vis_(*[x[0].detach().cpu() for x in [batch_first, batch_last, scores_first, scores_last]])
 		encoded = base64.b64encode(jpeg_bytes).decode('utf-8').replace('\n', '')
 		vis.write(f'<img src="data:image/jpeg;base64,{encoded}"></img>')
 		
