@@ -14,22 +14,17 @@ import matplotlib.pyplot as plt
 
 import speech2text
 
-def vis_(batch_first, batch_last, scores_first, scores_last, K = 40):
+def perturb(batch_first, batch_last, K = 80):
+	diff = batch_last - batch_first
+	positive = F.relu(diff)
+	small = diff.clone()
+	small[:, K:] = 0
+	large = diff * (diff.abs() < 0.25 * diff.max()).float()
+	return batch_first + positive, batch_first + small, batch_first + large
+
+def vis_(batch_first_grad, batch_first, batch_last, scores_first, scores_last, K = 80):
 	postproc = lambda decoded: ''.join('.' if c == '|' else c if i == 0 or c == ' ' or c != idx2chr(decoded[i - 1]) else '_' for i, c in enumerate(''.join(map(idx2chr, decoded))))
-	normalize_min_max = lambda scores, dim = 0: (scores - scores.min(dim = dim).values) / (scores.max(dim = dim).values - scores.min(dim = dim).values)
-
-	def merge_epsilon(scores):
-		decoded = list(map(idx2chr, scores.argmax(dim = 0).tolist()))
-		scores = scores.clone()
-		noneps = decoded[0]
-		for i, c in enumerate(decoded):
-			if i > 0:
-				scores[chr2idx(noneps), i] += scores[chr2idx('|'), i]
-				if c != '|':
-					noneps = c
-		assert 0 == chr2idx('|')
-		return scores[1:]
-
+	normalize_min_max = lambda scores, dim = 0: (scores - scores.min(dim = dim).values) / (scores.max(dim = dim).values - scores.min(dim = dim).values + 1e-16)
 	entropy = lambda x, dim, eps = 1e-15: -(x / x.sum(dim = dim, keepdim = True).add(eps) * (x / x.sum(dim = dim, keepdim = True).add(eps) + eps).log()).sum(dim = dim)
 	
 	plt.figure(figsize=(6, 3))
@@ -38,37 +33,42 @@ def vis_(batch_first, batch_last, scores_first, scores_last, K = 40):
 	ticks = lambda labelsize = 4, length = 1: plt.gca().tick_params(axis='both', which='both', labelsize=labelsize, length=length) or [ax.set_linewidth(0) for ax in plt.gca().spines.values()]
 	plt.subplots_adjust(top = 0.99, bottom=0.01, hspace=0.8, wspace=0.4)
 
-	num_subplots = 8
+	num_subplots = 9
 	plt.subplot(num_subplots, 1, 1)
-	plt.imshow(batch_first[:K], origin = 'lower', aspect = 'auto'); ticks(); colorbar()
-	title('Spectrogram, original')
+	plt.imshow(batch_first[:K].log1p(), origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('LogSpectrogram, original')
 
 	plt.subplot(num_subplots, 1, 2)
-	plt.imshow(batch_last[:K], origin = 'lower', aspect = 'auto'); ticks(); colorbar()
-	title('Spectrogram, dream')
+	plt.imshow(batch_last[:K].log1p(), origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('LogSpectrogram, dream')
 
 	plt.subplot(num_subplots, 1, 3)
-	plt.imshow((batch_last - batch_first)[:K], origin = 'lower', aspect = 'auto'); ticks(); colorbar()
-	title('Diff')
+	diff = batch_last - batch_first
+	plt.imshow((diff * (diff.abs() < 0.25 * diff.max()).float())[:K].log1p(), origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('LogDiff')
+
+	plt.subplot(num_subplots, 1, 4)
+	plt.imshow(batch_first_grad[:K].log1p(), origin = 'lower', aspect = 'auto'); ticks(); colorbar()
+	title('LogGrad')
 
 	scores_first_01 = normalize_min_max(scores_first)
 	scores_last_01 = normalize_min_max(scores_last)
 	scores_first_softmax = F.softmax(scores_first, dim = 0)
 	scores_last_softmax = F.softmax(scores_last, dim = 0)
 
-	plt.subplot(num_subplots, 1, 4)
+	plt.subplot(num_subplots, 1, 5)
 	plt.imshow(scores_first_01, origin = 'lower', aspect = 'auto'); ticks(); colorbar()
 	title('Scores, original')
 
-	plt.subplot(num_subplots, 1, 5)
+	plt.subplot(num_subplots, 1, 6)
 	plt.imshow(scores_last_01, origin = 'lower', aspect = 'auto'); ticks(); colorbar()
 	title('Scores, dream')
 
-	plt.subplot(num_subplots, 1, 6)
+	plt.subplot(num_subplots, 1, 7)
 	plt.imshow(scores_last_01 - scores_first_01, origin = 'lower', aspect = 'auto'); ticks(); colorbar()
 	title('Diff')
 
-	plt.subplot(num_subplots, 1, 7)
+	plt.subplot(num_subplots, 1, 8)
 	plt.plot(entropy(scores_first_softmax, dim = 0).numpy(), linewidth = 0.3, color='b')
 	plt.plot(entropy(scores_last_softmax, dim = 0).numpy(), linewidth = 0.3, color='r')
 	plt.hlines(1.0, 0, scores_first_01.shape[-1]); colorbar()
@@ -82,16 +82,12 @@ def vis_(batch_first, batch_last, scores_first, scores_last, K = 40):
 	ticks(labelsize=2, length = 0)
 	title('Entropy')
 
-	plt.subplot(num_subplots, 1, 8)
-	plt.plot(F.kl_div(scores_first_softmax, scores_last_softmax, reduction = 'none').sum(dim = 0), linewidth = 0.3, color = 'b'); ticks(); colorbar()
-	plt.ylim([-2, 0])
+	plt.subplot(num_subplots, 1, 9)
+	plt.plot(F.kl_div(scores_first_softmax, scores_last_softmax, reduction = 'none').sum(dim = 0), linewidth = 0.3, color = 'b')
+	plt.plot((scores_last_softmax - scores_first_softmax).abs().sum(dim = 0), linewidth = 0.3, color = 'g'); ticks(); colorbar()
+	plt.xlim([0, scores_first_01.shape[-1]])
+	plt.ylim([-2, 2])
 	title('KL')	
-	#plt.subplot(616)
-	#best, next = scores.topk(2, dim = 0).values
-	#plt.plot(best.numpy(), linewidth = 0.3, color = 'r')
-	#plt.plot(next.numpy(), linewidth = 0.3, color = 'b'); ticks(); colorbar()
-	#plt.xlim([0, scores.shape[-1]])
-	#title('Margin')
 
 	buf = io.BytesIO()
 	plt.savefig(buf, format = 'jpg', bbox_inches = 'tight', dpi = 300)
@@ -119,7 +115,7 @@ if __name__ == '__main__':
 
 	for i, (reference, transcript, filename, cer) in enumerate(list(map(j.get, ['reference', 'transcript', 'filename', 'cer'])) for j in ref_tra):
 		sample_rate, signal = scipy.io.wavfile.read(filename)
-		#if i > 1: continue
+		if i > 5: continue
 
 		signal = torch.from_numpy(signal).to(torch.float32).to(args.device).requires_grad_()
 		labels = torch.IntTensor(list(map(chr2idx, reference))).to(args.device)
@@ -141,7 +137,7 @@ if __name__ == '__main__':
 			signal.grad.data.zero_()
 			if k == 0:
 				batch_first = batch.clone()
-				batch_first_grad = batch.grad.clone()
+				batch_first_grad = batch.grad.clone().neg_()
 				scores_first = scores.clone()
 				hyp_first = hyp
 			scores_last = scores.clone()
@@ -151,9 +147,9 @@ if __name__ == '__main__':
 			print(i, '| #', k, 'REF: ', reference)
 			print(i, '| #', k, 'HYP: ', hyp)
 			print()
-		#if not hyp:
-		#	continue
 
+
+		hyp_positive, hyp_small, hyp_large = [speech2text.decode_greedy(model(x).squeeze(0), idx2chr) for x in perturb(batch_first, batch_last)]
 		encoded = base64.b64encode(open(filename, 'rb').read()).decode('utf-8').replace('\n', '')
 		vis.write(f'<div><hr /><h4>{filename} | {cer}</h4>')
 		vis.write(f'<h6>original</h6><div><audio controls src="data:audio/wav;base64,{encoded}"></audio></div>')
@@ -164,8 +160,11 @@ if __name__ == '__main__':
 		vis.write(f'<h6>REF: {reference}</h6>')
 		vis.write(f'<h6>HYP: {hyp_first}</h6>')
 		vis.write(f'<h6>DREAM: {hyp_last}</h6>')
+		vis.write(f'<h6>POSITIVE: {hyp_positive}</h6>')
+		vis.write(f'<h6>SMALL: {hyp_small}</h6>')
+		vis.write(f'<h6>LARGE: {hyp_large}</h6>')
 
-		jpeg_bytes = vis_(*[x[0].detach().cpu() for x in [batch_first, batch_last, scores_first, scores_last]])
+		jpeg_bytes = vis_(*[x[0].detach().cpu() for x in [batch_first_grad, batch_first, batch_last, scores_first, scores_last]])
 		encoded = base64.b64encode(jpeg_bytes).decode('utf-8').replace('\n', '')
 		vis.write(f'<img src="data:image/jpeg;base64,{encoded}"></img>')
 		
